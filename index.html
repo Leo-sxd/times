@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>时空规划调度系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部区域 -->
+        <div class="top-section">
+            <!-- 左上角：日历 -->
+            <div class="calendar-section">
+                <div class="calendar-header">
+                    <button id="prevMonth" class="nav-btn">&lt;</button>
+                    <h2 id="currentMonth"></h2>
+                    <button id="nextMonth" class="nav-btn">&gt;</button>
+                </div>
+                <div class="calendar-grid">
+                    <div class="calendar-day-header">日</div>
+                    <div class="calendar-day-header">一</div>
+                    <div class="calendar-day-header">二</div>
+                    <div class="calendar-day-header">三</div>
+                    <div class="calendar-day-header">四</div>
+                    <div class="calendar-day-header">五</div>
+                    <div class="calendar-day-header">六</div>
+                    <div id="calendarDays"></div>
+                </div>
+            </div>
+            
+            <!-- 右上角：时钟、天气、闹钟区域 -->
+            <div class="reserved-section">
+                <div class="clock-weather-alarm">
+                    <!-- 数显时钟 -->
+                    <div class="digital-clock" id="digitalClock">00:00:00</div>
+                    <!-- 日期与天气卡片 -->
+                    <div class="weather-card" id="weatherCard">
+                        <div class="weather-left">
+                            <div class="weather-temp" id="weatherTemp">--°C</div>
+                            <div class="weather-icon-desc">
+                                <span class="weather-icon" id="weatherIcon">️</span>
+                                <span class="weather-desc" id="weatherDesc">点击获取天气</span>
+                            </div>
+                        </div>
+                        <div class="weather-right">
+                            <div class="weather-locate-row">
+                                <span class="weather-province" id="weatherProvince">--</span>
+                                <span class="weather-city" id="weatherCity">--</span>
+                            </div>
+                            <div class="weather-district" id="weatherDistrict">--</div>
+                            <div class="weather-detail" id="weatherDetail">--</div>
+                        </div>
+                        <div class="weather-date" id="currentDate">----年--月--日 星期-</div>
+                        <button id="getLocationBtn" class="weather-locate-btn" title="获取天气"></button>
+                    </div>
+                    <!-- 闹钟列表 -->
+                    <div class="alarm-list-container">
+                        <div class="alarm-header-row">
+                            <h3>闹钟</h3>
+                            <button class="alarm-add-btn" id="addAlarmBtn" title="添加闹钟">+</button>
+                        </div>
+                        <div id="alarmNextInfo" class="alarm-next-info"></div>
+                        <div class="alarm-list" id="alarmList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 下方：甘特图区域 -->
+        <div class="gantt-section">
+            <div class="gantt-header">
+                <h2 id="ganttTitle">周视图</h2>
+                <div class="gantt-controls">
+                    <div class="view-modes">
+                        <button class="view-btn" data-view="day">日</button>
+                        <button class="view-btn active" data-view="week">周</button>
+                        <button class="view-btn" data-view="month">月</button>
+                        <button class="view-btn" data-view="year">年</button>
+                    </div>
+                    <button id="addEventBtn" class="btn">添加事件</button>
+                    <button id="settingsBtn" class="btn">设置</button>
+                </div>
+            </div>
+            
+            <div class="gantt-timeline">
+                <div class="gantt-labels"></div>
+                <div class="gantt-tag-column" id="ganttTagColumn"></div>
+                <div class="gantt-chart">
+                    <div class="gantt-chart-inner">
+                        <div class="gantt-days-header"></div>
+                        <div class="gantt-events"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 添加/编辑事件模态框 -->
+    <div id="eventModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3 id="modalTitle">添加事件</h3>
+            <form id="eventForm">
+                <div class="form-group">
+                    <label for="eventName">事件名称：</label>
+                    <input type="text" id="eventName" required>
+                </div>
+                <div class="form-group">
+                    <label for="eventDesc">事件描述：</label>
+                    <textarea id="eventDesc" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="eventStart">开始时间：</label>
+                    <input type="datetime-local" id="eventStart" required>
+                </div>
+                <div class="form-group">
+                    <label for="eventEnd">结束时间：</label>
+                    <input type="datetime-local" id="eventEnd" required>
+                </div>
+                <div class="form-group">
+                    <label for="eventUrgency">紧急程度：<span id="urgencyValue">50</span>%</label>
+                    <input type="range" id="eventUrgency" min="0" max="100" value="50">
+                    <div id="urgencyColorPreview" style="width:100%;height:12px;border-radius:6px;margin-top:6px;"></div>
+                </div>
+                <div class="form-group">
+                    <label for="eventTag">标签：</label>
+                    <input type="text" id="eventTag" placeholder="输入标签名称，相同标签的事件将合并到同一行">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn">保存</button>
+                    <button type="button" id="cancelEventBtn" class="btn btn-secondary">取消</button>
+                    <button type="button" id="deleteEventBtn" class="btn btn-danger" style="display:none;">删除</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 设置模态框 -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>设置</h3>
+            
+            <!-- 背景设置（合并主题颜色+背景图片） -->
+            <div class="settings-section">
+                <div class="settings-section-header collapsed" data-target="bgSection">
+                    <span> 背景设置</span>
+                    <span class="collapse-arrow">▼</span>
+                </div>
+                <div class="settings-section-body collapsed" id="bgSection">
+                    <div class="form-group">
+                        <label for="themeColor">网页主题颜色：</label>
+                        <input type="color" id="themeColor" value="#4CAF50">
+                    </div>
+                    <hr style="margin: 15px 0; border: none; border-top: 1px solid #eee;">
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-content" id="uploadContent">
+                            <div class="upload-icon">📁</div>
+                            <p>拖放图片到此处，或点击选择文件</p>
+                            <p class="upload-hint">支持 JPG、PNG、WEBP 格式</p>
+                        </div>
+                        <div class="preview-content" id="previewContent" style="display:none;">
+                            <img id="previewImage" src="" alt="预览">
+                            <div class="preview-actions">
+                                <button class="btn" id="confirmUpload">确认使用</button>
+                                <button class="btn btn-secondary" id="cancelUpload">取消</button>
+                            </div>
+                        </div>
+                        <div class="upload-progress" id="uploadProgress" style="display:none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <p id="progressText">处理中...</p>
+                        </div>
+                    </div>
+                    <div class="bg-style-options" id="bgStyleOptions" style="display:none;">
+                        <label>显示模式：</label>
+                        <select id="bgSizeSelect">
+                            <option value="cover">覆盖（全屏填充）</option>
+                            <option value="contain">适应（完整显示）</option>
+                            <option value="100% 100%">拉伸</option>
+                            <option value="auto">原始大小</option>
+                        </select>
+                        <label>位置：</label>
+                        <select id="bgPositionSelect">
+                            <option value="center">居中</option>
+                            <option value="top">顶部</option>
+                            <option value="bottom">底部</option>
+                            <option value="left">左侧</option>
+                            <option value="right">右侧</option>
+                        </select>
+                        <label>重复：</label>
+                        <select id="bgRepeatSelect">
+                            <option value="no-repeat">不重复</option>
+                            <option value="repeat">平铺</option>
+                            <option value="repeat-x">水平平铺</option>
+                            <option value="repeat-y">垂直平铺</option>
+                        </select>
+                        <button class="btn btn-danger btn-sm" id="removeBgBtn">移除背景</button>
+                    </div>
+                    <input type="file" id="bgFileInput" accept="image/jpeg,image/png,image/webp" hidden>
+                    <div class="form-actions" style="margin-top: 15px;">
+                        <button type="button" class="btn" id="saveBgBtn">保存背景设置</button>
+                        <button type="button" class="btn btn-secondary" id="cancelSettingsBtn">关闭</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 铃声设置 -->
+            <div class="settings-section">
+                <div class="settings-section-header collapsed" data-target="ringtoneSection">
+                    <span>铃声设置</span>
+                    <span class="collapse-arrow">▼</span>
+                </div>
+                <div class="settings-section-body collapsed" id="ringtoneSection">
+                    <div class="ringtone-options">
+                        <label>选择铃声：</label>
+                        <div class="ringtone-list" id="ringtoneList"></div>
+                    </div>
+                    <div class="ringtone-volume">
+                        <label>音量：<span id="volumeValue">80</span>%</label>
+                        <input type="range" id="volumeSlider" min="0" max="100" value="80">
+                    </div>
+                    <div class="ringtone-duration">
+                        <label>持续时间：</label>
+                        <select id="durationSelect">
+                            <option value="5">5 秒</option>
+                            <option value="10">10 秒</option>
+                            <option value="15" selected>15 秒</option>
+                            <option value="30">30 秒</option>
+                            <option value="60">60 秒</option>
+                            <option value="0">直到手动关闭</option>
+                        </select>
+                    </div>
+                    <div class="ringtone-fadein">
+                        <label class="fadein-check">
+                            <input type="checkbox" id="fadeInToggle" checked>
+                            <span>渐强铃声（从低音量逐渐增加）</span>
+                        </label>
+                    </div>
+                    <div class="ringtone-override">
+                        <label class="override-check">
+                            <input type="checkbox" id="overrideMuteToggle" checked>
+                            <span>覆盖系统静音模式</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 闹钟编辑弹窗 -->
+    <div id="alarmModal" class="modal">
+        <div class="modal-content alarm-modal-content">
+            <span class="close" id="alarmModalCancel">&times;</span>
+            <h3 id="alarmModalTitle">添加闹钟</h3>
+            <div class="alarm-modal-time-picker">
+                <input type="time" id="alarmModalTime" value="07:00">
+            </div>
+            <div class="alarm-modal-weekdays">
+                <label>重复：</label>
+                <div class="weekday-checkboxes">
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="1">
+                        <span>周一</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="2">
+                        <span>周二</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="3">
+                        <span>周三</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="4">
+                        <span>周四</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="5">
+                        <span>周五</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="6">
+                        <span>周六</span>
+                    </label>
+                    <label class="weekday-check">
+                        <input type="checkbox" class="alarm-modal-weekday" data-day="0">
+                        <span>周日</span>
+                    </label>
+                </div>
+            </div>
+            <div class="alarm-modal-actions">
+                <button class="btn btn-danger" id="alarmModalDelete" style="display:none;">删除</button>
+                <button class="btn" id="alarmModalSave">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

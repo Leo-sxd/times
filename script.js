@@ -1,0 +1,1868 @@
+// 全局变量
+let currentDate = new Date();
+let currentMonth = currentDate.getMonth();
+let currentYear = currentDate.getFullYear();
+let events = JSON.parse(localStorage.getItem('scheduleEvents')) || [];
+let editingEventId = null;
+let currentViewMode = localStorage.getItem('viewMode') || 'week'; // day, week, month, year
+let selectedDate = new Date(); // 用户点击选中的日期
+let viewStartDate = getViewStartDate(selectedDate, currentViewMode);
+
+// 视图名称映射
+const viewNames = {
+    day: '日视图',
+    week: '周视图',
+    month: '月视图',
+    year: '年视图'
+};
+
+// 初始化
+document.addEventListener('DOMContentLoaded', () => {
+    renderCalendar();
+    updateViewStartDate();
+    renderGanttChart();
+    setupEventListeners();
+    loadSettings();
+    loadBackgroundSettings();
+    setupClockWeatherAlarm();
+    
+    // 每分钟更新一次事件优先级
+    setInterval(() => {
+        renderGanttChart();
+    }, 60000);
+});
+
+// 获取视图起始日期
+function getViewStartDate(date, mode) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    
+    switch (mode) {
+        case 'day':
+            return d;
+        case 'week':
+            return getWeekStart(d);
+        case 'month':
+            return new Date(d.getFullYear(), d.getMonth(), 1);
+        case 'year':
+            // 返回该年第一个周一
+            const jan1 = new Date(d.getFullYear(), 0, 1);
+            return getWeekStart(jan1);
+        default:
+            return getWeekStart(d);
+    }
+}
+
+// 获取本周的周一日期
+function getWeekStart(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+// 更新视图起始日期
+function updateViewStartDate() {
+    viewStartDate = getViewStartDate(selectedDate, currentViewMode);
+}
+
+// 设置事件监听器
+function setupEventListeners() {
+    // 日历导航
+    document.getElementById('prevMonth').addEventListener('click', () => {
+        currentMonth--;
+        if (currentMonth < 0) {
+            currentMonth = 11;
+            currentYear--;
+        }
+        renderCalendar();
+    });
+    
+    document.getElementById('nextMonth').addEventListener('click', () => {
+        currentMonth++;
+        if (currentMonth > 11) {
+            currentMonth = 0;
+            currentYear++;
+        }
+        renderCalendar();
+    });
+    
+    // 紧急度滑块实时显示数值和颜色预览
+    document.getElementById('eventUrgency').addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        document.getElementById('urgencyValue').textContent = val;
+        const color = urgencyToColor(val);
+        document.getElementById('urgencyColorPreview').style.backgroundColor = color;
+    });
+    
+    // 视图模式切换
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const view = btn.dataset.view;
+            switchViewMode(view);
+        });
+    });
+    
+    // 添加事件按钮
+    document.getElementById('addEventBtn').addEventListener('click', () => {
+        openEventModal();
+    });
+    
+    // 设置按钮
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+        openSettingsModal();
+    });
+    
+    // 事件表单提交
+    document.getElementById('eventForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        saveEvent();
+    });
+    
+    // 设置保存按钮
+    document.getElementById('saveBgBtn').addEventListener('click', () => {
+        saveSettings();
+        saveBackgroundSettings();
+    });
+    
+    // 取消按钮
+    document.getElementById('cancelEventBtn').addEventListener('click', () => {
+        closeEventModal();
+    });
+    
+    document.getElementById('cancelSettingsBtn').addEventListener('click', () => {
+        closeSettingsModal();
+    });
+    
+    // 折叠面板点击
+    document.querySelectorAll('.settings-section-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const targetId = header.dataset.target;
+            const body = document.getElementById(targetId);
+            if (body) {
+                header.classList.toggle('collapsed');
+                body.classList.toggle('collapsed');
+            }
+        });
+    });
+    
+    // 删除事件按钮
+    document.getElementById('deleteEventBtn').addEventListener('click', () => {
+        deleteEvent();
+    });
+    
+    // 关闭模态框
+    document.querySelectorAll('.close').forEach(el => {
+        el.addEventListener('click', () => {
+            closeEventModal();
+            closeSettingsModal();
+        });
+    });
+    
+    // 点击模态框外部关闭
+    window.addEventListener('click', (e) => {
+        const eventModal = document.getElementById('eventModal');
+        const settingsModal = document.getElementById('settingsModal');
+        if (e.target === eventModal) closeEventModal();
+        if (e.target === settingsModal) closeSettingsModal();
+    });
+    
+    // 背景图片上传功能
+    setupBackgroundUpload();
+}
+
+// 背景图片上传功能
+function setupBackgroundUpload() {
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('bgFileInput');
+    const uploadContent = document.getElementById('uploadContent');
+    const previewContent = document.getElementById('previewContent');
+    const uploadProgress = document.getElementById('uploadProgress');
+    const previewImage = document.getElementById('previewImage');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const confirmBtn = document.getElementById('confirmUpload');
+    const cancelBtn = document.getElementById('cancelUpload');
+    const bgStyleOptions = document.getElementById('bgStyleOptions');
+    const bgSizeSelect = document.getElementById('bgSizeSelect');
+    const bgPositionSelect = document.getElementById('bgPositionSelect');
+    const bgRepeatSelect = document.getElementById('bgRepeatSelect');
+    const removeBgBtn = document.getElementById('removeBgBtn');
+    
+    let pendingImage = null;
+    
+    // 点击上传区域触发文件选择
+    uploadZone.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'BUTTON' && !e.target.closest('.preview-actions')) {
+            fileInput.click();
+        }
+    });
+    
+    // 文件选择
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            handleFileSelect(file);
+        }
+    });
+    
+    // 拖放功能
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('drag-over');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('drag-over');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            handleFileSelect(file);
+        }
+    });
+    
+    // 文件处理
+    function handleFileSelect(file) {
+        // 文件类型验证
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('请上传 JPG、PNG 或 WEBP 格式的图片');
+            return;
+        }
+        
+        // 文件大小验证（限制10MB）
+        if (file.size > 10 * 1024 * 1024) {
+            alert('图片大小不能超过 10MB');
+            return;
+        }
+        
+        // 显示进度条
+        uploadContent.style.display = 'none';
+        previewContent.style.display = 'none';
+        uploadProgress.style.display = 'block';
+        
+        // 模拟加载进度
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            progress += 10;
+            progressFill.style.width = progress + '%';
+            progressText.textContent = `加载中... ${progress}%`;
+            
+            if (progress >= 100) {
+                clearInterval(progressInterval);
+                progressText.textContent = '加载完成！';
+                
+                // 读取文件并预览
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    pendingImage = e.target.result;
+                    previewImage.src = pendingImage;
+                    
+                    setTimeout(() => {
+                        uploadProgress.style.display = 'none';
+                        previewContent.style.display = 'block';
+                        progressFill.style.width = '0%';
+                    }, 500);
+                };
+                reader.readAsDataURL(file);
+            }
+        }, 100);
+    }
+    
+    // 确认上传
+    confirmBtn.addEventListener('click', () => {
+        if (pendingImage) {
+            applyBackground(pendingImage);
+            previewContent.style.display = 'none';
+            uploadContent.style.display = 'block';
+            bgStyleOptions.style.display = 'block';
+            fileInput.value = '';
+            pendingImage = null;
+        }
+    });
+    
+    // 取消上传
+    cancelBtn.addEventListener('click', () => {
+        previewContent.style.display = 'none';
+        uploadContent.style.display = 'block';
+        fileInput.value = '';
+        pendingImage = null;
+    });
+    
+    // 背景样式选项
+    bgSizeSelect.addEventListener('change', () => {
+        updateBackgroundStyle();
+    });
+    
+    bgPositionSelect.addEventListener('change', () => {
+        updateBackgroundStyle();
+    });
+    
+    bgRepeatSelect.addEventListener('change', () => {
+        updateBackgroundStyle();
+    });
+    
+    // 移除背景
+    removeBgBtn.addEventListener('click', () => {
+        if (confirm('确定要移除背景图片吗？')) {
+            document.body.style.backgroundImage = '';
+            document.body.style.backgroundSize = '';
+            document.body.style.backgroundPosition = '';
+            document.body.style.backgroundRepeat = '';
+            localStorage.removeItem('bgImageData');
+            localStorage.removeItem('bgSize');
+            localStorage.removeItem('bgPosition');
+            localStorage.removeItem('bgRepeat');
+            bgStyleOptions.style.display = 'none';
+        }
+    });
+}
+
+// 应用背景图片
+function applyBackground(imageData) {
+    document.body.style.backgroundImage = `url(${imageData})`;
+    updateBackgroundStyle();
+    
+    // 保存到本地存储
+    try {
+        localStorage.setItem('bgImageData', imageData);
+    } catch (e) {
+        console.warn('图片太大，无法保存到本地存储');
+        alert('图片已应用，但由于文件过大无法保存到本地存储，刷新页面后将恢复默认背景');
+    }
+}
+
+// 更新背景样式
+function updateBackgroundStyle() {
+    const bgSize = document.getElementById('bgSizeSelect').value;
+    const bgPosition = document.getElementById('bgPositionSelect').value;
+    const bgRepeat = document.getElementById('bgRepeatSelect').value;
+    
+    document.body.style.backgroundSize = bgSize;
+    document.body.style.backgroundPosition = bgPosition;
+    document.body.style.backgroundRepeat = bgRepeat;
+    
+    // 保存设置
+    localStorage.setItem('bgSize', bgSize);
+    localStorage.setItem('bgPosition', bgPosition);
+    localStorage.setItem('bgRepeat', bgRepeat);
+}
+
+// 加载背景设置
+function loadBackgroundSettings() {
+    const bgImageData = localStorage.getItem('bgImageData');
+    const bgSize = localStorage.getItem('bgSize');
+    const bgPosition = localStorage.getItem('bgPosition');
+    const bgRepeat = localStorage.getItem('bgRepeat');
+    
+    if (bgImageData) {
+        document.body.style.backgroundImage = `url(${bgImageData})`;
+        document.getElementById('bgStyleOptions').style.display = 'block';
+    }
+    
+    if (bgSize) {
+        document.getElementById('bgSizeSelect').value = bgSize;
+        document.body.style.backgroundSize = bgSize;
+    }
+    
+    if (bgPosition) {
+        document.getElementById('bgPositionSelect').value = bgPosition;
+        document.body.style.backgroundPosition = bgPosition;
+    }
+    
+    if (bgRepeat) {
+        document.getElementById('bgRepeatSelect').value = bgRepeat;
+        document.body.style.backgroundRepeat = bgRepeat;
+    }
+}
+
+// 切换视图模式
+function switchViewMode(mode) {
+    currentViewMode = mode;
+    localStorage.setItem('viewMode', mode);
+    
+    // 更新按钮状态
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === mode);
+    });
+    
+    updateViewStartDate();
+    renderGanttChart();
+}
+
+// 渲染日历
+function renderCalendar() {
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', 
+                        '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    
+    document.getElementById('currentMonth').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+    
+    const firstDay = new Date(currentYear, currentMonth, 1);
+    const lastDay = new Date(currentYear, currentMonth + 1, 0);
+    const prevLastDay = new Date(currentYear, currentMonth, 0);
+    
+    const firstDayIndex = firstDay.getDay();
+    const lastDate = lastDay.getDate();
+    const prevLastDate = prevLastDay.getDate();
+    
+    const calendarDays = document.getElementById('calendarDays');
+    calendarDays.innerHTML = '';
+    
+    const today = new Date();
+    
+    // 上个月的日期
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+        const day = createCalendarDay(prevLastDate - i, currentMonth - 1, currentYear, true);
+        calendarDays.appendChild(day);
+    }
+    
+    // 本月的日期
+    for (let i = 1; i <= lastDate; i++) {
+        const day = createCalendarDay(i, currentMonth, currentYear, false);
+        calendarDays.appendChild(day);
+    }
+    
+    // 下个月的日期
+    const totalCells = firstDayIndex + lastDate;
+    const remainingCells = 42 - totalCells;
+    for (let i = 1; i <= remainingCells && totalCells + i <= 42; i++) {
+        const day = createCalendarDay(i, currentMonth + 1, currentYear, true);
+        calendarDays.appendChild(day);
+    }
+}
+
+// 创建日历日期元素
+function createCalendarDay(day, month, year, isOtherMonth) {
+    const dayEl = document.createElement('div');
+    dayEl.className = 'calendar-day';
+    if (isOtherMonth) dayEl.classList.add('other-month');
+    
+    const date = new Date(year, month, day);
+    const today = new Date();
+    
+    // 检查是否是今天
+    if (day === today.getDate() && 
+        month === today.getMonth() && 
+        year === today.getFullYear()) {
+        dayEl.classList.add('today');
+    }
+    
+    // 检查是否是选中日期
+    if (date.toDateString() === selectedDate.toDateString()) {
+        dayEl.classList.add('selected');
+    }
+    
+    dayEl.textContent = day;
+    
+    // 点击日期切换视图
+    dayEl.addEventListener('click', () => {
+        selectedDate = new Date(year, month, day);
+        // 如果点击的是其他月的日期，切换月份
+        if (isOtherMonth) {
+            currentMonth = month;
+            currentYear = year;
+            renderCalendar();
+        } else {
+            // 只更新选中状态
+            renderCalendar();
+        }
+        updateViewStartDate();
+        renderGanttChart();
+    });
+    
+    return dayEl;
+}
+
+// 渲染甘特图
+function renderGanttChart() {
+    const titleEl = document.getElementById('ganttTitle');
+    const chartInner = document.querySelector('.gantt-chart-inner');
+    const daysHeader = document.querySelector('.gantt-days-header');
+    const eventsContainer = document.querySelector('.gantt-events');
+    const labelsContainer = document.querySelector('.gantt-labels');
+    
+    titleEl.textContent = viewNames[currentViewMode];
+    daysHeader.innerHTML = '';
+    eventsContainer.innerHTML = '';
+    labelsContainer.innerHTML = '';
+    
+    // 移除旧的视图类
+    chartInner.className = 'gantt-chart-inner';
+    daysHeader.className = 'gantt-days-header';
+    daysHeader.style.gridTemplateColumns = '';
+    
+    // 添加新的视图类到容器
+    chartInner.classList.add(`${currentViewMode}-view`);
+    daysHeader.classList.add(`${currentViewMode}-view`);
+    
+    switch (currentViewMode) {
+        case 'day':
+            renderDayView(daysHeader, eventsContainer, labelsContainer);
+            break;
+        case 'week':
+            renderWeekView(daysHeader, eventsContainer, labelsContainer);
+            break;
+        case 'month':
+            renderMonthView(daysHeader, eventsContainer, labelsContainer);
+            break;
+        case 'year':
+            renderYearView(daysHeader, eventsContainer, labelsContainer);
+            break;
+    }
+}
+
+// 日视图 - 按小时显示（24小时）
+function renderDayView(daysHeader, eventsContainer, labelsContainer) {
+    const startDate = new Date(viewStartDate);
+    const endDate = new Date(viewStartDate);
+    endDate.setDate(endDate.getDate() + 1);
+    
+    // 渲染小时头部
+    for (let i = 0; i < 24; i++) {
+        const hourDiv = document.createElement('div');
+        hourDiv.className = 'gantt-day';
+        hourDiv.textContent = `${i}:00`;
+        daysHeader.appendChild(hourDiv);
+    }
+    
+    // 过滤当天的事件
+    const dayEvents = getEventsInRange(startDate, endDate);
+    
+    // 渲染事件
+    renderEventBars(dayEvents, startDate, endDate, eventsContainer, labelsContainer, 24 * 60 * 60 * 1000);
+}
+
+// 周视图 - 按天显示（7天）
+function renderWeekView(daysHeader, eventsContainer, labelsContainer) {
+    const startDate = new Date(viewStartDate);
+    const endDate = new Date(viewStartDate);
+    endDate.setDate(endDate.getDate() + 7);
+    
+    const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    
+    // 渲染日期头部
+    for (let i = 0; i < 7; i++) {
+        const dayDate = new Date(startDate);
+        dayDate.setDate(dayDate.getDate() + i);
+        
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'gantt-day';
+        dayDiv.textContent = `${dayNames[i]} ${dayDate.getDate()}/${dayDate.getMonth() + 1}`;
+        daysHeader.appendChild(dayDiv);
+    }
+    
+    // 过滤本周的事件
+    const weekEvents = getEventsInRange(startDate, endDate);
+    
+    // 渲染事件
+    renderEventBars(weekEvents, startDate, endDate, eventsContainer, labelsContainer, 7 * 24 * 60 * 60 * 1000);
+}
+
+// 月视图 - 按天显示
+function renderMonthView(daysHeader, eventsContainer, labelsContainer) {
+    const startDate = new Date(viewStartDate);
+    const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+    const monthDays = endDate.getDate();
+    
+    // 动态设置网格列数
+    daysHeader.style.gridTemplateColumns = `repeat(${monthDays}, 1fr)`;
+    
+    // 渲染日期头部（当月所有天）
+    for (let i = 1; i <= monthDays; i++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'gantt-day';
+        dayDiv.textContent = `${i}`;
+        daysHeader.appendChild(dayDiv);
+    }
+    
+    // 过滤当月的事件
+    const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+    const monthEvents = getEventsInRange(startDate, monthEnd);
+    
+    // 渲染事件
+    const totalDuration = monthDays * 24 * 60 * 60 * 1000;
+    renderEventBars(monthEvents, startDate, monthEnd, eventsContainer, labelsContainer, totalDuration);
+}
+
+// 年视图 - 按周显示（52周）
+function renderYearView(daysHeader, eventsContainer, labelsContainer) {
+    const year = selectedDate.getFullYear();
+    const startDate = new Date(year, 0, 1);
+    const yearEnd = new Date(year + 1, 0, 1);
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', 
+                        '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    
+    // 渲染12个月份头部（单行）
+    for (let i = 0; i < 12; i++) {
+        const monthDiv = document.createElement('div');
+        monthDiv.className = 'gantt-day';
+        monthDiv.textContent = monthNames[i];
+        daysHeader.appendChild(monthDiv);
+    }
+    
+    // 过滤当年的事件
+    const yearEvents = getEventsInRange(startDate, yearEnd);
+    
+    // 渲染事件（按实际天数计算）
+    const totalDuration = yearEnd - startDate;
+    renderEventBars(yearEvents, startDate, yearEnd, eventsContainer, labelsContainer, totalDuration);
+}
+
+// 获取时间范围内的事件
+function getEventsInRange(start, end) {
+    return events.filter(event => {
+        const eventStart = new Date(event.start);
+        const eventEnd = new Date(event.end);
+        return eventStart < end && eventEnd > start;
+    });
+}
+
+// 渲染事件条
+function renderEventBars(filteredEvents, rangeStart, rangeEnd, eventsContainer, labelsContainer, totalDuration) {
+    // 按紧急度降序排序（紧急度越高越靠上）
+    const sortedEvents = [...filteredEvents].sort((a, b) => {
+        const urgencyA = a.urgency !== undefined ? a.urgency : 50;
+        const urgencyB = b.urgency !== undefined ? b.urgency : 50;
+        return urgencyB - urgencyA;
+    });
+    
+    // 子行机制：每个 track 代表一个标签组（或无标签行），内部可包含多个 subRow
+    // track 结构: { tag, events: [{start, end, subRow}], subRowCount }
+    const tracks = [];
+    // 每个事件分配: { trackIndex, subRow }
+    const eventPositions = [];
+    
+    sortedEvents.forEach((event) => {
+        const eventStart = new Date(event.start).getTime();
+        const eventEnd = new Date(event.end).getTime();
+        const eventTag = event.tag || '';
+        
+        let placed = false;
+        
+        if (eventTag) {
+            // 有标签：找到或创建该标签的 track
+            let targetTrack = tracks.find(t => t.tag === eventTag);
+            
+            if (!targetTrack) {
+                // 创建新标签 track
+                targetTrack = { tag: eventTag, events: [], subRowCount: 1 };
+                tracks.push(targetTrack);
+            }
+            
+            // 在该 track 内找不重叠的 subRow
+            let assigned = false;
+            for (let sr = 0; sr < targetTrack.subRowCount; sr++) {
+                const overlap = targetTrack.events.some(e => 
+                    e.subRow === sr && eventStart < e.end && eventEnd > e.start
+                );
+                if (!overlap) {
+                    targetTrack.events.push({ start: eventStart, end: eventEnd, subRow: sr });
+                    eventPositions.push({ trackIndex: tracks.indexOf(targetTrack), subRow: sr });
+                    assigned = true;
+                    break;
+                }
+            }
+            
+            if (!assigned) {
+                // 所有 subRow 都重叠，新增 subRow
+                targetTrack.events.push({ start: eventStart, end: eventEnd, subRow: targetTrack.subRowCount });
+                eventPositions.push({ trackIndex: tracks.indexOf(targetTrack), subRow: targetTrack.subRowCount });
+                targetTrack.subRowCount++;
+            }
+            
+            placed = true;
+        }
+        
+        if (!placed) {
+            // 无标签事件：按不重叠规则分配到任意 track 的 subRow
+            for (let t = 0; t < tracks.length; t++) {
+                // 无标签事件只能放在没有标签的 track 中，或空 track
+                if (tracks[t].tag !== '') continue;
+                
+                for (let sr = 0; sr < tracks[t].subRowCount; sr++) {
+                    const overlap = tracks[t].events.some(e => 
+                        e.subRow === sr && eventStart < e.end && eventEnd > e.start
+                    );
+                    if (!overlap) {
+                        tracks[t].events.push({ start: eventStart, end: eventEnd, subRow: sr });
+                        eventPositions.push({ trackIndex: t, subRow: sr });
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed) break;
+                
+                // 该 track 所有 subRow 都满了，新增 subRow
+                tracks[t].events.push({ start: eventStart, end: eventEnd, subRow: tracks[t].subRowCount });
+                eventPositions.push({ trackIndex: t, subRow: tracks[t].subRowCount });
+                tracks[t].subRowCount++;
+                placed = true;
+                break;
+            }
+            
+            if (!placed) {
+                // 创建新的无标签 track
+                const newTrack = { tag: '', events: [{ start: eventStart, end: eventEnd, subRow: 0 }], subRowCount: 1 };
+                tracks.push(newTrack);
+                eventPositions.push({ trackIndex: tracks.length - 1, subRow: 0 });
+            }
+        }
+    });
+    
+    // 计算每个 track 的起始视觉行号（累加前面 track 的 subRowCount）
+    const trackStartRows = [];
+    let cumulativeRow = 0;
+    tracks.forEach((track, i) => {
+        trackStartRows[i] = cumulativeRow;
+        cumulativeRow += track.subRowCount;
+    });
+    
+    sortedEvents.forEach((event, index) => {
+        const eventStart = new Date(event.start);
+        const eventEnd = new Date(event.end);
+        
+        // 计算事件在甘特图中的位置
+        const startOffset = Math.max(0, (eventStart - rangeStart) / totalDuration);
+        const duration = Math.min(1, (eventEnd - eventStart) / totalDuration);
+        const width = duration * 100;
+        const left = startOffset * 100;
+        
+        // 计算优先级
+        const priority = calculatePriority(eventEnd);
+        
+        // 计算最终视觉行号 = track起始行 + subRow
+        const pos = eventPositions[index];
+        const visualRow = trackStartRows[pos.trackIndex] + pos.subRow;
+        
+        // 创建事件标签
+        const labelDiv = document.createElement('div');
+        labelDiv.className = `event-label priority-${priority}`;
+        const tagHtml = event.tag ? `<span class="event-tag-badge" style="background: ${hexToRgba(getTagColor(event.tag) || '#90caf9', 0.2)}; color: ${getTagColor(event.tag) || '#1976d2'}; border-color: ${getTagColor(event.tag) || '#90caf9'}">${event.tag}</span>` : '';
+        labelDiv.innerHTML = `
+            ${event.name}
+            ${tagHtml}
+            <span class="priority-badge priority-${priority}">
+                ${priority === 1 ? '超紧急' : priority === 2 ? '紧急' : '普通'}
+            </span>
+        `;
+        labelDiv.addEventListener('click', () => {
+            openEventModal(event.id);
+        });
+        labelsContainer.appendChild(labelDiv);
+        
+        // 创建甘特图事件条
+        const eventDiv = document.createElement('div');
+        eventDiv.className = `gantt-event priority-${priority}`;
+        eventDiv.style.left = `${left}%`;
+        eventDiv.style.width = `${width}%`;
+        eventDiv.style.top = `${visualRow * 50 + 10}px`;
+        const urgency = event.urgency !== undefined ? event.urgency : 50;
+        eventDiv.style.backgroundColor = urgencyToColor(urgency);
+        const tagColor = event.tag ? (getTagColor(event.tag) || getDefaultTagColor(event.tag)) : null;
+        eventDiv.innerHTML = `<span class="event-bar-name">${event.name}</span>${event.tag ? `<span class="event-bar-tag" style="background: ${hexToRgba(tagColor, 0.3)}; border-color: ${tagColor}">${event.tag}</span>` : ''}`;
+        eventDiv.title = `${event.name}\n${event.description || ''}\n开始: ${formatDateTime(eventStart)}\n结束: ${formatDateTime(eventEnd)}${event.tag ? '\n标签: ' + event.tag : ''}`;
+        
+        eventDiv.addEventListener('click', () => {
+            openEventModal(event.id);
+        });
+        
+        eventsContainer.appendChild(eventDiv);
+    });
+    
+    // 动态设置事件容器高度
+    const totalRows = cumulativeRow;
+    eventsContainer.style.minHeight = `${totalRows * 50 + 20}px`;
+    
+    // 为有标签的 track 添加背景分组标识
+    tracks.forEach((track, i) => {
+        if (track.tag) {
+            const tagColor = getTagColor(track.tag) || getDefaultTagColor(track.tag);
+            const topPx = trackStartRows[i] * 50 + 5;
+            const heightPx = track.subRowCount * 50;
+            
+            // 背景带（在事件区域内，无文字）
+            const band = document.createElement('div');
+            band.className = 'track-group-band';
+            band.style.top = `${topPx}px`;
+            band.style.height = `${heightPx}px`;
+            band.style.background = hexToRgba(tagColor, 0.15);
+            band.style.borderLeft = `3px solid ${tagColor}`;
+            eventsContainer.insertBefore(band, eventsContainer.firstChild);
+        }
+    });
+    
+    // 渲染标签列按钮
+    const tagColumn = document.getElementById('ganttTagColumn');
+    if (tagColumn) {
+        tagColumn.innerHTML = '';
+        tagColumn.style.minHeight = `${totalRows * 50 + 20}px`;
+        
+        const tagColors = JSON.parse(localStorage.getItem('tagColors') || '{}');
+        
+        tracks.forEach((track, i) => {
+            if (!track.tag) return;
+            
+            const tagColor = tagColors[track.tag] || getDefaultTagColor(track.tag);
+            const topPx = trackStartRows[i] * 50 + 56;
+            const heightPx = track.subRowCount * 50;
+            
+            const btn = document.createElement('div');
+            btn.className = 'tag-column-btn';
+            btn.style.top = `${topPx}px`;
+            btn.style.height = `${heightPx}px`;
+            btn.style.background = tagColor;
+            btn.dataset.tag = track.tag;
+            btn.innerHTML = `<span class="tag-column-btn-name">${track.tag}</span>`;
+            tagColumn.appendChild(btn);
+        });
+        
+        // 点击标签按钮弹出颜色选择
+        tagColumn.querySelectorAll('.tag-column-btn').forEach(btn => {
+            btn.addEventListener('dblclick', () => {
+                const tag = btn.dataset.tag;
+                const input = document.createElement('input');
+                input.type = 'color';
+                input.value = tagColors[tag] || getDefaultTagColor(tag);
+                input.style.position = 'absolute';
+                input.style.opacity = '0';
+                btn.appendChild(input);
+                input.click();
+                input.addEventListener('change', (e) => {
+                    const newColor = e.target.value;
+                    tagColors[tag] = newColor;
+                    localStorage.setItem('tagColors', JSON.stringify(tagColors));
+                    btn.style.background = newColor;
+                    renderGanttChart();
+                });
+                input.addEventListener('blur', () => input.remove());
+            });
+        });
+    }
+}
+
+// 获取标签颜色
+function getTagColor(tagName) {
+    if (!tagName) return null;
+    const tagColors = JSON.parse(localStorage.getItem('tagColors') || '{}');
+    return tagColors[tagName] || null;
+}
+
+// 将十六进制颜色转换为 rgba
+function hexToRgba(hex, alpha) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!result) return `rgba(144, 202, 249, ${alpha})`;
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// 根据标签名生成默认颜色
+function getDefaultTagColor(tagName) {
+    const colors = ['#90caf9', '#f48fb1', '#a5d6a7', '#ffcc80', '#ce93d8', '#80deea', '#ef9a9a', '#fff59d'];
+    let hash = 0;
+    for (let i = 0; i < tagName.length; i++) {
+        hash = tagName.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
+// 将紧急度映射为颜色（0%红色 → 100%紫色，按光谱顺序：红橙黄绿青蓝紫）
+function urgencyToColor(urgency) {
+    // 使用 HSL 色相：红(0°) → 橙(30°) → 黄(60°) → 绿(120°) → 青(180°) → 蓝(240°) → 紫(270°)
+    const hue = (urgency / 100) * 270;
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+// 计算事件优先级
+function calculatePriority(endTime) {
+    const now = new Date();
+    const timeDiff = endTime - now;
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    if (hoursDiff < 1) {
+        return 1; // 一级事件（超紧急）
+    } else if (hoursDiff < 10) {
+        return 2; // 二级事件（紧急）
+    } else {
+        return 3; // 三级事件（普通）
+    }
+}
+
+// 格式化日期时间
+function formatDateTime(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+// 打开事件模态框
+function openEventModal(eventId = null) {
+    const modal = document.getElementById('eventModal');
+    const form = document.getElementById('eventForm');
+    const modalTitle = document.getElementById('modalTitle');
+    const deleteBtn = document.getElementById('deleteEventBtn');
+    
+    form.reset();
+    
+    if (eventId) {
+        editingEventId = eventId;
+        const event = events.find(e => e.id === eventId);
+        if (event) {
+            modalTitle.textContent = '编辑事件';
+            document.getElementById('eventName').value = event.name;
+            document.getElementById('eventDesc').value = event.description || '';
+            document.getElementById('eventStart').value = formatDateTimeLocal(new Date(event.start));
+            document.getElementById('eventEnd').value = formatDateTimeLocal(new Date(event.end));
+            const urgency = event.urgency !== undefined ? event.urgency : 50;
+            document.getElementById('eventUrgency').value = urgency;
+            document.getElementById('urgencyValue').textContent = urgency;
+            document.getElementById('urgencyColorPreview').style.backgroundColor = urgencyToColor(urgency);
+            document.getElementById('eventTag').value = event.tag || '';
+            deleteBtn.style.display = 'block';
+        }
+    } else {
+        editingEventId = null;
+        modalTitle.textContent = '添加事件';
+        deleteBtn.style.display = 'none';
+        
+        // 设置默认时间为选中日期的当前时间
+        const now = new Date();
+        const later = new Date(now.getTime() + 60 * 60 * 1000); // 1小时后
+        document.getElementById('eventStart').value = formatDateTimeLocal(now);
+        document.getElementById('eventEnd').value = formatDateTimeLocal(later);
+        document.getElementById('eventUrgency').value = 50;
+        document.getElementById('urgencyValue').textContent = 50;
+        document.getElementById('urgencyColorPreview').style.backgroundColor = urgencyToColor(50);
+        document.getElementById('eventTag').value = '';
+    }
+    
+    modal.style.display = 'block';
+}
+
+// 关闭事件模态框
+function closeEventModal() {
+    document.getElementById('eventModal').style.display = 'none';
+    editingEventId = null;
+}
+
+// 打开设置模态框
+function openSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    const themeColor = document.getElementById('themeColor');
+    
+    themeColor.value = getComputedStyle(document.documentElement).getPropertyValue('--theme-color').trim() || '#4CAF50';
+    modal.style.display = 'block';
+    initRingtoneUI();
+}
+
+// 关闭设置模态框
+function closeSettingsModal() {
+    document.getElementById('settingsModal').style.display = 'none';
+}
+
+// 格式化日期时间为本地时间格式
+function formatDateTimeLocal(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// 保存事件
+function saveEvent() {
+    const name = document.getElementById('eventName').value;
+    const description = document.getElementById('eventDesc').value;
+    const start = document.getElementById('eventStart').value;
+    const end = document.getElementById('eventEnd').value;
+    const urgency = parseInt(document.getElementById('eventUrgency').value);
+    const tag = document.getElementById('eventTag').value.trim();
+    const color = urgencyToColor(urgency); // 颜色由紧急度决定
+    
+    if (!name || !start || !end) {
+        alert('请填写必要字段');
+        return;
+    }
+    
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    
+    if (endDate <= startDate) {
+        alert('结束时间必须晚于开始时间');
+        return;
+    }
+    
+    // 如果是新标签且没有颜色，自动分配默认颜色
+    if (tag) {
+        const tagColors = JSON.parse(localStorage.getItem('tagColors') || '{}');
+        if (!tagColors[tag]) {
+            tagColors[tag] = getDefaultTagColor(tag);
+            localStorage.setItem('tagColors', JSON.stringify(tagColors));
+        }
+    }
+    
+    if (editingEventId) {
+        // 更新现有事件
+        const index = events.findIndex(e => e.id === editingEventId);
+        if (index !== -1) {
+            events[index] = {
+                ...events[index],
+                name,
+                description,
+                start: startDate.toISOString(),
+                end: endDate.toISOString(),
+                color,
+                urgency,
+                tag
+            };
+        }
+    } else {
+        // 创建新事件
+        const newEvent = {
+            id: Date.now().toString(),
+            name,
+            description,
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            color,
+            urgency,
+            tag
+        };
+        events.push(newEvent);
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('scheduleEvents', JSON.stringify(events));
+    
+    closeEventModal();
+    renderGanttChart();
+}
+
+// 删除事件
+function deleteEvent() {
+    if (!editingEventId) return;
+    
+    if (confirm('确定要删除这个事件吗？')) {
+        events = events.filter(e => e.id !== editingEventId);
+        localStorage.setItem('scheduleEvents', JSON.stringify(events));
+        closeEventModal();
+        renderGanttChart();
+    }
+}
+
+// 保存设置
+function saveSettings() {
+    const themeColor = document.getElementById('themeColor').value;
+    document.documentElement.style.setProperty('--theme-color', themeColor);
+    
+    // 计算 hover 颜色（稍微暗一点）
+    const hoverColor = adjustColor(themeColor, -10);
+    document.documentElement.style.setProperty('--theme-color-hover', hoverColor);
+    
+    localStorage.setItem('scheduleThemeColor', themeColor);
+    localStorage.setItem('scheduleThemeColorHover', hoverColor);
+    closeSettingsModal();
+}
+
+// 加载设置
+function loadSettings() {
+    const themeColor = localStorage.getItem('scheduleThemeColor');
+    if (themeColor) {
+        document.documentElement.style.setProperty('--theme-color', themeColor);
+        const hoverColor = localStorage.getItem('scheduleThemeColorHover') || adjustColor(themeColor, -10);
+        document.documentElement.style.setProperty('--theme-color-hover', hoverColor);
+    }
+    
+    // 恢复视图模式
+    const savedView = localStorage.getItem('viewMode');
+    if (savedView && viewNames[savedView]) {
+        currentViewMode = savedView;
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === currentViewMode);
+        });
+    }
+}
+
+// 调整颜色亮度（用于生成 hover 颜色）
+function adjustColor(color, amount) {
+    const hex = color.replace('#', '');
+    const r = Math.max(0, Math.min(255, parseInt(hex.substr(0, 2), 16) + amount));
+    const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + amount));
+    const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + amount));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+// ========== 时钟、天气、闹钟功能 ==========
+
+// 更新数显时钟
+function updateDigitalClock() {
+    const clockEl = document.getElementById('digitalClock');
+    if (!clockEl) return;
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    clockEl.textContent = `${h}:${m}:${s}`;
+}
+
+// 更新日期显示
+function updateDateDisplay() {
+    const dateEl = document.getElementById('currentDate');
+    if (!dateEl) return;
+    const now = new Date();
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    dateEl.textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${weekdays[now.getDay()]}`;
+}
+
+// 获取天气
+function fetchWeather(lat, lon) {
+    // 使用 Open-Meteo 免费天气API（无需API Key）
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            if (data.current_weather) {
+                const w = data.current_weather;
+                document.getElementById('weatherIcon').textContent = getWeatherIcon(w.weathercode);
+                document.getElementById('weatherTemp').textContent = `${w.temperature}°C`;
+                document.getElementById('weatherDesc').textContent = getWeatherDesc(w.weathercode);
+            }
+        })
+        .catch(() => {
+            document.getElementById('weatherDesc').textContent = '获取失败';
+        });
+
+    // 反向地理编码获取详细位置信息（使用 OpenStreetMap Nominatim）
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh`)
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.address) {
+                const addr = data.address;
+                // 省份
+                const province = addr.state || addr.province || '';
+                
+                // 从 display_name 中提取完整位置信息
+                // display_name 格式: "蓝球场, 芷阳路, 临潼区, 西安市, 陕西省, 710600, 中国"
+                // 顺序：街道, 路, 区, 市, 省, 邮编, 国家
+                let city = '';
+                let county = '';
+                let street = '';
+                
+                if (data.display_name) {
+                    const parts = data.display_name.split(',').map(p => p.trim());
+                    // 找到省份的位置
+                    const provIdx = parts.findIndex(p => p.includes('省') || p.includes('自治区') || p.includes('特别行政区'));
+                    // 省份前面是市，市前面是区，区前面是街道
+                    if (provIdx > 0) city = parts[provIdx - 1];
+                    if (provIdx > 1) county = parts[provIdx - 2];
+                    if (provIdx > 2) street = parts[provIdx - 3];
+                }
+                
+                // 回退到 addr 字段
+                if (!city) city = addr.city || addr.town || addr.prefecture || '';
+                if (!county) county = addr.county || addr.district || addr.city_district || '';
+                if (!street) street = addr.road || addr.suburb || addr.neighbourhood || addr.village || '';
+
+                document.getElementById('weatherProvince').textContent = province || '--';
+                document.getElementById('weatherCity').textContent = city || '--';
+                document.getElementById('weatherDistrict').textContent = county || '--';
+                document.getElementById('weatherDetail').textContent = street || '--';
+            }
+        })
+        .catch(() => {
+            document.getElementById('weatherProvince').textContent = '未知';
+            document.getElementById('weatherCity').textContent = '未知';
+            document.getElementById('weatherDistrict').textContent = '未知';
+            document.getElementById('weatherDetail').textContent = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+        });
+}
+
+function getWeatherIcon(code) {
+    if (code === 0) return '☀️';
+    if (code <= 3) return '⛅';
+    if (code <= 48) return '️';
+    if (code <= 67) return '🌧️';
+    if (code <= 77) return '❄️';
+    if (code <= 82) return '🌧️';
+    if (code <= 86) return '❄️';
+    if (code <= 99) return '⛈️';
+    return '🌤️';
+}
+
+function getWeatherDesc(code) {
+    const descs = {
+        0: '晴', 1: '大部晴朗', 2: '多云', 3: '阴天',
+        45: '雾', 48: '雾凇', 51: '小毛毛雨', 53: '中毛毛雨',
+        55: '大毛毛雨', 61: '小雨', 63: '中雨', 65: '大雨',
+        71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
+        80: '小阵雨', 81: '中阵雨', 82: '大阵雨',
+        95: '雷暴', 96: '雷暴+小冰雹', 99: '雷暴+大冰雹'
+    };
+    return descs[code] || '未知';
+}
+
+function requestLocation() {
+    document.getElementById('weatherDesc').textContent = '定位中...';
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                fetchWeather(pos.coords.latitude, pos.coords.longitude);
+            },
+            () => {
+                // 定位失败，尝试IP定位
+                fetchIPLocation();
+            },
+            { timeout: 5000 }
+        );
+    } else {
+        fetchIPLocation();
+    }
+}
+
+// 基于IP的备选定位
+function fetchIPLocation() {
+    fetch('https://ipapi.co/json/')
+        .then(res => res.json())
+        .then(data => {
+            if (data.latitude && data.longitude) {
+                fetchWeather(data.latitude, data.longitude);
+            } else {
+                document.getElementById('weatherDesc').textContent = '定位失败';
+                document.getElementById('weatherProvince').textContent = '未知';
+                document.getElementById('weatherCity').textContent = '未知';
+                document.getElementById('weatherDistrict').textContent = '未知';
+                document.getElementById('weatherDetail').textContent = '未知';
+            }
+        })
+        .catch(() => {
+            document.getElementById('weatherDesc').textContent = '定位失败';
+        });
+}
+
+// ========== 闹钟列表功能 ==========
+let alarms = JSON.parse(localStorage.getItem('alarms') || '[]');
+let alarmCheckInterval = null;
+let editingAlarmId = null;
+
+// 星期名称
+const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const weekdayShort = ['日', '一', '二', '三', '四', '五', '六'];
+
+// 保存闹钟到本地存储
+function saveAlarms() {
+    localStorage.setItem('alarms', JSON.stringify(alarms));
+}
+
+// 获取时间段描述
+function getTimePeriod(hour) {
+    if (hour >= 0 && hour < 6) return '凌晨';
+    if (hour >= 6 && hour < 12) return '早上';
+    if (hour >= 12 && hour < 14) return '中午';
+    if (hour >= 14 && hour < 18) return '下午';
+    if (hour >= 18 && hour < 22) return '晚上';
+    return '深夜';
+}
+
+// 获取重复描述
+function getRepeatDesc(alarm) {
+    if (!alarm.repeatDays || alarm.repeatDays.length === 0) return '不重复';
+    if (alarm.repeatDays.length === 7) return '每天';
+    const weekdays = alarm.repeatDays.map(d => weekdayShort[d]).join(' ');
+    return weekdays;
+}
+
+// 计算下次响铃时间
+function getNextAlarmTime(alarm) {
+    const now = new Date();
+    const [h, m] = alarm.time.split(':').map(Number);
+    
+    if (alarm.repeatDays && alarm.repeatDays.length > 0) {
+        // 重复闹钟：找到下一个触发日
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(now);
+            d.setDate(d.getDate() + i);
+            d.setHours(h, m, 0, 0);
+            const dayOfWeek = d.getDay();
+            if (alarm.repeatDays.includes(dayOfWeek) && d > now) {
+                return d;
+            }
+        }
+        return null;
+    } else {
+        // 不重复：今天或明天
+        const today = new Date(now);
+        today.setHours(h, m, 0, 0);
+        if (today > now) return today;
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(h, m, 0, 0);
+        return tomorrow;
+    }
+}
+
+// 计算距离下次响铃的时间描述
+function getTimeUntilNext(alarm) {
+    const next = getNextAlarmTime(alarm);
+    if (!next) return '';
+    const now = new Date();
+    const diff = next - now;
+    const totalMinutes = Math.floor(diff / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) return `${hours}小时${minutes}分钟后响铃`;
+    return `${minutes}分钟后响铃`;
+}
+
+// 渲染闹钟列表
+function renderAlarmList() {
+    const listEl = document.getElementById('alarmList');
+    const nextInfoEl = document.getElementById('alarmNextInfo');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    
+    // 按时间排序
+    alarms.sort((a, b) => a.time.localeCompare(b.time));
+    
+    // 更新下次响铃信息
+    let nextAlarm = null;
+    let nextTime = Infinity;
+    alarms.forEach(alarm => {
+        if (alarm.enabled) {
+            const t = getNextAlarmTime(alarm);
+            if (t && t.getTime() < nextTime) {
+                nextTime = t.getTime();
+                nextAlarm = alarm;
+            }
+        }
+    });
+    
+    if (nextAlarm && nextInfoEl) {
+        const desc = getTimeUntilNext(nextAlarm);
+        nextInfoEl.textContent = desc || '';
+    } else if (nextInfoEl) {
+        nextInfoEl.textContent = '';
+    }
+    
+    alarms.forEach(alarm => {
+        const [h, m] = alarm.time.split(':').map(Number);
+        const period = getTimePeriod(h);
+        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        const repeatDesc = getRepeatDesc(alarm);
+        
+        const item = document.createElement('div');
+        item.className = 'alarm-item' + (alarm.enabled ? '' : ' disabled');
+        item.innerHTML = `
+            <div class="alarm-item-info">
+                <div class="alarm-item-time">${period} ${timeStr}</div>
+                <div class="alarm-item-repeat">闹钟，${repeatDesc}</div>
+            </div>
+            <div class="alarm-item-controls">
+                <label class="alarm-toggle">
+                    <input type="checkbox" ${alarm.enabled ? 'checked' : ''} data-id="${alarm.id}">
+                    <span class="alarm-toggle-slider"></span>
+                </label>
+                <button class="alarm-delete-btn" data-id="${alarm.id}" title="删除">×</button>
+            </div>
+        `;
+        listEl.appendChild(item);
+    });
+    
+    // 绑定事件
+    listEl.querySelectorAll('.alarm-toggle input').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            const id = parseInt(e.target.dataset.id);
+            const alarm = alarms.find(a => a.id === id);
+            if (alarm) {
+                alarm.enabled = e.target.checked;
+                saveAlarms();
+                renderAlarmList();
+            }
+        });
+    });
+    
+    listEl.querySelectorAll('.alarm-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = parseInt(e.target.dataset.id);
+            alarms = alarms.filter(a => a.id !== id);
+            saveAlarms();
+            renderAlarmList();
+        });
+    });
+}
+
+// 打开添加闹钟弹窗
+function openAlarmModal() {
+    editingAlarmId = null;
+    document.getElementById('alarmModalTime').value = '07:00';
+    document.getElementById('alarmModalTitle').textContent = '添加闹钟';
+    document.getElementById('alarmModalSave').textContent = '保存';
+    document.getElementById('alarmModalDelete').style.display = 'none';
+    // 默认选中工作日
+    document.querySelectorAll('.alarm-modal-weekday').forEach(cb => {
+        const day = parseInt(cb.dataset.day);
+        cb.checked = day >= 1 && day <= 5;
+    });
+    document.getElementById('alarmModal').style.display = 'block';
+}
+
+// 打开编辑闹钟弹窗
+function openEditAlarmModal(id) {
+    const alarm = alarms.find(a => a.id === id);
+    if (!alarm) return;
+    editingAlarmId = id;
+    document.getElementById('alarmModalTime').value = alarm.time;
+    document.getElementById('alarmModalTitle').textContent = '编辑闹钟';
+    document.getElementById('alarmModalSave').textContent = '保存';
+    document.getElementById('alarmModalDelete').style.display = 'inline-block';
+    document.querySelectorAll('.alarm-modal-weekday').forEach(cb => {
+        const day = parseInt(cb.dataset.day);
+        cb.checked = alarm.repeatDays && alarm.repeatDays.includes(day);
+    });
+    document.getElementById('alarmModal').style.display = 'block';
+}
+
+// 保存闹钟
+function saveAlarmModal() {
+    const time = document.getElementById('alarmModalTime').value;
+    if (!time) return;
+    
+    const repeatDays = [];
+    document.querySelectorAll('.alarm-modal-weekday:checked').forEach(cb => {
+        repeatDays.push(parseInt(cb.dataset.day));
+    });
+    
+    if (editingAlarmId !== null) {
+        const alarm = alarms.find(a => a.id === editingAlarmId);
+        if (alarm) {
+            alarm.time = time;
+            alarm.repeatDays = repeatDays;
+        }
+    } else {
+        alarms.push({
+            id: Date.now(),
+            time: time,
+            repeatDays: repeatDays,
+            enabled: true
+        });
+    }
+    
+    saveAlarms();
+    renderAlarmList();
+    document.getElementById('alarmModal').style.display = 'none';
+}
+
+// 删除闹钟（从编辑弹窗）
+function deleteAlarmFromModal() {
+    if (editingAlarmId !== null) {
+        alarms = alarms.filter(a => a.id !== editingAlarmId);
+        saveAlarms();
+        renderAlarmList();
+        document.getElementById('alarmModal').style.display = 'none';
+    }
+}
+
+// ========== 铃声引擎 ==========
+const RINGTONES = [
+    { id: 'classic', name: '经典闹钟' },
+    { id: 'electronic', name: '电子提示' },
+    { id: 'gentle', name: '温柔唤醒' },
+    { id: 'urgent', name: '急促提醒' },
+    { id: 'nature', name: '自然鸟鸣' }
+];
+
+let ringtoneSettings = JSON.parse(localStorage.getItem('ringtoneSettings')) || {
+    selectedRingtone: 'classic',
+    volume: 80,
+    duration: 15,
+    fadeIn: true,
+    overrideMute: true
+};
+
+let audioCtx = null;
+let currentRingtoneOscillators = [];
+let ringtoneTimeout = null;
+let fadeInInterval = null;
+
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
+
+function stopCurrentRingtone() {
+    if (ringtoneTimeout) {
+        clearTimeout(ringtoneTimeout);
+        ringtoneTimeout = null;
+    }
+    if (fadeInInterval) {
+        clearInterval(fadeInInterval);
+        fadeInInterval = null;
+    }
+    currentRingtoneOscillators.forEach(osc => {
+        try {
+            osc.gainNode.gain.cancelScheduledValues(0);
+            osc.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            osc.osc.stop(audioCtx.currentTime + 0.01);
+        } catch (e) {}
+    });
+    currentRingtoneOscillators = [];
+}
+
+function playRingtone(ringtoneId, duration, volume, fadeIn, overrideMute) {
+    stopCurrentRingtone();
+    
+    const ctx = getAudioContext();
+    const masterGain = ctx.createGain();
+    const targetVolume = volume / 100;
+    
+    if (overrideMute) {
+        masterGain.gain.value = targetVolume;
+    } else {
+        masterGain.gain.value = targetVolume;
+    }
+    
+    if (fadeIn) {
+        masterGain.gain.setValueAtTime(0, ctx.currentTime);
+        masterGain.gain.linearRampToValueAtTime(targetVolume, ctx.currentTime + 2);
+    } else {
+        masterGain.gain.setValueAtTime(targetVolume, ctx.currentTime);
+    }
+    
+    masterGain.connect(ctx.destination);
+    
+    const now = ctx.currentTime;
+    const oscillators = [];
+    
+    switch (ringtoneId) {
+        case 'classic': {
+            // 经典双音闹钟：叮-咚 重复
+            for (let i = 0; i < 20; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = i % 2 === 0 ? 880 : 660;
+                gain.gain.setValueAtTime(0, now + i * 0.3);
+                gain.gain.linearRampToValueAtTime(1, now + i * 0.3 + 0.05);
+                gain.gain.linearRampToValueAtTime(0, now + i * 0.3 + 0.25);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now + i * 0.3);
+                osc.stop(now + i * 0.3 + 0.3);
+                oscillators.push({ osc, gainNode: gain });
+            }
+            break;
+        }
+        case 'electronic': {
+            // 电子提示：短促数字音
+            for (let i = 0; i < 15; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.value = 1000 + (i % 3) * 200;
+                gain.gain.setValueAtTime(0, now + i * 0.2);
+                gain.gain.linearRampToValueAtTime(0.5, now + i * 0.2 + 0.02);
+                gain.gain.linearRampToValueAtTime(0, now + i * 0.2 + 0.15);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now + i * 0.2);
+                osc.stop(now + i * 0.2 + 0.2);
+                oscillators.push({ osc, gainNode: gain });
+            }
+            break;
+        }
+        case 'gentle': {
+            // 温柔唤醒：柔和和弦
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+            for (let i = 0; i < 8; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = notes[i % 4];
+                gain.gain.setValueAtTime(0, now + i * 0.5);
+                gain.gain.linearRampToValueAtTime(0.8, now + i * 0.5 + 0.3);
+                gain.gain.linearRampToValueAtTime(0, now + i * 0.5 + 0.8);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now + i * 0.5);
+                osc.stop(now + i * 0.5 + 1);
+                oscillators.push({ osc, gainNode: gain });
+            }
+            break;
+        }
+        case 'urgent': {
+            // 急促提醒：快速连续音
+            for (let i = 0; i < 30; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.value = 800 + (i % 2) * 400;
+                gain.gain.setValueAtTime(0, now + i * 0.1);
+                gain.gain.linearRampToValueAtTime(0.6, now + i * 0.1 + 0.02);
+                gain.gain.linearRampToValueAtTime(0, now + i * 0.1 + 0.08);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now + i * 0.1);
+                osc.stop(now + i * 0.1 + 0.1);
+                oscillators.push({ osc, gainNode: gain });
+            }
+            break;
+        }
+        case 'nature': {
+            // 自然鸟鸣：模拟鸟叫声
+            for (let i = 0; i < 12; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                const baseFreq = 2000 + Math.random() * 1000;
+                osc.frequency.setValueAtTime(baseFreq, now + i * 0.4);
+                osc.frequency.linearRampToValueAtTime(baseFreq + 500, now + i * 0.4 + 0.1);
+                osc.frequency.linearRampToValueAtTime(baseFreq - 200, now + i * 0.4 + 0.3);
+                gain.gain.setValueAtTime(0, now + i * 0.4);
+                gain.gain.linearRampToValueAtTime(0.5, now + i * 0.4 + 0.05);
+                gain.gain.linearRampToValueAtTime(0, now + i * 0.4 + 0.35);
+                osc.connect(gain);
+                gain.connect(masterGain);
+                osc.start(now + i * 0.4);
+                osc.stop(now + i * 0.4 + 0.4);
+                oscillators.push({ osc, gainNode: gain });
+            }
+            break;
+        }
+    }
+    
+    currentRingtoneOscillators = oscillators;
+    
+    // 设置持续时间
+    if (duration > 0) {
+        ringtoneTimeout = setTimeout(() => {
+            stopCurrentRingtone();
+        }, duration * 1000);
+    }
+}
+
+function initRingtoneUI() {
+    const ringtoneList = document.getElementById('ringtoneList');
+    if (!ringtoneList) return;
+    
+    ringtoneList.innerHTML = '';
+    RINGTONES.forEach(rt => {
+        const item = document.createElement('div');
+        item.className = 'ringtone-item' + (rt.id === ringtoneSettings.selectedRingtone ? ' active' : '');
+        item.innerHTML = `
+            <div class="ringtone-item-info">
+                <span class="ringtone-name">${rt.name}</span>
+            </div>
+            <button class="ringtone-test-btn" data-id="${rt.id}">试听</button>
+        `;
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('ringtone-test-btn')) return;
+            ringtoneSettings.selectedRingtone = rt.id;
+            document.querySelectorAll('.ringtone-item').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            saveRingtoneSettings();
+        });
+        ringtoneList.appendChild(item);
+    });
+    
+    // 试听按钮
+    ringtoneList.querySelectorAll('.ringtone-test-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = btn.dataset.id;
+            stopCurrentRingtone();
+            playRingtone(id, 3, ringtoneSettings.volume, false, ringtoneSettings.overrideMute);
+        });
+    });
+    
+    // 音量滑块
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumeValue = document.getElementById('volumeValue');
+    if (volumeSlider) {
+        volumeSlider.value = ringtoneSettings.volume;
+        volumeValue.textContent = ringtoneSettings.volume;
+        volumeSlider.addEventListener('input', () => {
+            ringtoneSettings.volume = parseInt(volumeSlider.value);
+            volumeValue.textContent = ringtoneSettings.volume;
+            saveRingtoneSettings();
+        });
+    }
+    
+    // 持续时间
+    const durationSelect = document.getElementById('durationSelect');
+    if (durationSelect) {
+        durationSelect.value = ringtoneSettings.duration;
+        durationSelect.addEventListener('change', () => {
+            ringtoneSettings.duration = parseInt(durationSelect.value);
+            saveRingtoneSettings();
+        });
+    }
+    
+    // 渐强
+    const fadeInToggle = document.getElementById('fadeInToggle');
+    if (fadeInToggle) {
+        fadeInToggle.checked = ringtoneSettings.fadeIn;
+        fadeInToggle.addEventListener('change', () => {
+            ringtoneSettings.fadeIn = fadeInToggle.checked;
+            saveRingtoneSettings();
+        });
+    }
+    
+    // 覆盖静音
+    const overrideMuteToggle = document.getElementById('overrideMuteToggle');
+    if (overrideMuteToggle) {
+        overrideMuteToggle.checked = ringtoneSettings.overrideMute;
+        overrideMuteToggle.addEventListener('change', () => {
+            ringtoneSettings.overrideMute = overrideMuteToggle.checked;
+            saveRingtoneSettings();
+        });
+    }
+}
+
+function saveRingtoneSettings() {
+    localStorage.setItem('ringtoneSettings', JSON.stringify(ringtoneSettings));
+}
+
+function triggerAlarmSound() {
+    playRingtone(
+        ringtoneSettings.selectedRingtone,
+        ringtoneSettings.duration,
+        ringtoneSettings.volume,
+        ringtoneSettings.fadeIn,
+        ringtoneSettings.overrideMute
+    );
+}
+
+// 检查闹钟和事件截止提醒
+function checkAlarms() {
+    const now = new Date();
+    const currentH = now.getHours();
+    const currentM = now.getMinutes();
+    const currentS = now.getSeconds();
+    const currentTime = `${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`;
+    const currentDay = now.getDay();
+    
+    // 检查闹钟
+    alarms.forEach(alarm => {
+        if (!alarm.enabled) return;
+        if (alarm.time !== currentTime) return;
+        if (currentS !== 0) return; // 只在整分钟触发
+        
+        // 检查重复日
+        if (alarm.repeatDays && alarm.repeatDays.length > 0) {
+            if (!alarm.repeatDays.includes(currentDay)) return;
+        } else {
+            // 不重复的闹钟，触发后自动关闭
+            alarm.enabled = false;
+            saveAlarms();
+            renderAlarmList();
+        }
+        
+        triggerAlarmSound();
+        showNotification(`⏰ 闹钟时间到！\n${currentTime}`);
+    });
+    
+    // 检查事件截止提醒
+    const pad2 = n => String(n).padStart(2, '0');
+    const localDateTime = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}T${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    events.forEach(event => {
+        if (event.end === localDateTime && currentS === 0) {
+            triggerAlarmSound();
+            showNotification(`⏰ 事件截止提醒！\n「${event.name}」已到期`);
+        }
+    });
+}
+
+// 显示通知弹窗（替代 alert）
+function showNotification(message) {
+    let notif = document.getElementById('notificationPopup');
+    if (!notif) {
+        notif = document.createElement('div');
+        notif.id = 'notificationPopup';
+        notif.innerHTML = `
+            <div class="notif-content">
+                <p class="notif-message"></p>
+                <div class="notif-actions">
+                    <button class="btn btn-danger" id="stopRingtoneBtn">停止铃声</button>
+                    <button class="btn" id="closeNotifBtn">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(notif);
+        
+        document.getElementById('stopRingtoneBtn').addEventListener('click', () => {
+            stopCurrentRingtone();
+        });
+        document.getElementById('closeNotifBtn').addEventListener('click', () => {
+            stopCurrentRingtone();
+            notif.style.display = 'none';
+        });
+    }
+    notif.querySelector('.notif-message').textContent = message;
+    notif.style.display = 'flex';
+}
+
+// 初始化闹钟
+function initAlarmSystem() {
+    renderAlarmList();
+    if (alarmCheckInterval) clearInterval(alarmCheckInterval);
+    alarmCheckInterval = setInterval(checkAlarms, 1000);
+}
+
+// 初始化时钟、天气、闹钟
+function setupClockWeatherAlarm() {
+    updateDigitalClock();
+    updateDateDisplay();
+    setInterval(() => {
+        updateDigitalClock();
+        updateDateDisplay();
+    }, 1000);
+
+    // 天气按钮
+    const getLocationBtn = document.getElementById('getLocationBtn');
+    if (getLocationBtn) {
+        getLocationBtn.addEventListener('click', requestLocation);
+    }
+
+    // 闹钟按钮
+    const addAlarmBtn = document.getElementById('addAlarmBtn');
+    if (addAlarmBtn) addAlarmBtn.addEventListener('click', openAlarmModal);
+
+    // 闹钟弹窗按钮
+    const alarmModalSave = document.getElementById('alarmModalSave');
+    const alarmModalDelete = document.getElementById('alarmModalDelete');
+    const alarmModalCancel = document.getElementById('alarmModalCancel');
+    if (alarmModalSave) alarmModalSave.addEventListener('click', saveAlarmModal);
+    if (alarmModalDelete) alarmModalDelete.addEventListener('click', deleteAlarmFromModal);
+    if (alarmModalCancel) alarmModalCancel.addEventListener('click', () => {
+        document.getElementById('alarmModal').style.display = 'none';
+    });
+
+    // 点击弹窗外部关闭
+    window.addEventListener('click', (e) => {
+        const alarmModal = document.getElementById('alarmModal');
+        if (e.target === alarmModal) alarmModal.style.display = 'none';
+    });
+
+    initAlarmSystem();
+    
+    // 页面加载时自动尝试获取位置
+    setTimeout(() => {
+        requestLocation();
+    }, 500);
+}
