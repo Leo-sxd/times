@@ -1,38 +1,63 @@
-const OpenAI = require('openai');
-const Anthropic = require('@anthropic-ai/sdk');
-const axios = require('axios');
-
 class AIService {
   constructor() {
     this.provider = process.env.AI_PROVIDER || 'openai';
-    this.initClient();
-  }
+    this._openaiClient = null;
+    this._anthropicClient = null;
+    this._axios = null;
+    this.model = '';
+    this.qwenApiKey = '';
 
-  initClient() {
+    // 根据环境变量初始化默认配置（不创建客户端）
     switch (this.provider) {
       case 'openai':
-        this.openai = new OpenAI({
-          apiKey: process.env.OPENAI_API_KEY,
-          baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
-        });
         this.model = process.env.OPENAI_MODEL || 'gpt-4';
         break;
-
       case 'anthropic':
-        this.anthropic = new Anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY
-        });
         this.model = process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
         break;
-
       case 'qwen':
-        this.qwenApiKey = process.env.QWEN_API_KEY;
         this.model = process.env.QWEN_MODEL || 'qwen-max';
+        this.qwenApiKey = process.env.QWEN_API_KEY || '';
         break;
-
-      default:
-        throw new Error(`不支持的 AI 提供商: ${this.provider}`);
     }
+  }
+
+  // 懒加载 openai
+  _getOpenAI() {
+    if (!this._openaiClient) {
+      try {
+        const OpenAI = require('openai');
+        this._openaiClient = OpenAI;
+      } catch (e) {
+        throw new Error('openai 模块加载失败，请确保已安装: npm install openai');
+      }
+    }
+    return this._openaiClient;
+  }
+
+  // 懒加载 anthropic
+  _getAnthropic() {
+    if (!this._anthropicClient) {
+      try {
+        const Anthropic = require('@anthropic-ai/sdk');
+        this._anthropicClient = Anthropic;
+      } catch (e) {
+        throw new Error('anthropic 模块加载失败，请确保已安装: npm install @anthropic-ai/sdk');
+      }
+    }
+    return this._anthropicClient;
+  }
+
+  // 懒加载 axios
+  _getAxios() {
+    if (!this._axios) {
+      try {
+        this._axios = require('axios');
+      } catch (e) {
+        throw new Error('axios 模块加载失败，请确保已安装: npm install axios');
+      }
+    }
+    return this._axios;
   }
 
   // 根据动态配置创建客户端
@@ -48,7 +73,7 @@ class AIService {
     // 回退到环境变量
     return {
       provider: this.provider,
-      apiKey: process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.QWEN_API_KEY || '',
+      apiKey: process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || this.qwenApiKey || '',
       model: this.model,
       baseUrl: ''
     };
@@ -65,26 +90,26 @@ class AIService {
 
 ## 用户数据分析：
 
-### 📅 事件统计
+### 事件统计
 - 总事件数：${analysis.totalEvents}
 - 今日事件：${analysis.todayEvents.length} 个
 - 本周事件：${analysis.weekEvents.length} 个
 - 本月事件：${analysis.monthEvents.length} 个
-- 高优先级事件（紧急度≥80%）：${analysis.highPriorityEvents.length} 个
+- 高优先级事件（紧急度>=80%）：${analysis.highPriorityEvents.length} 个
 
-### ⏰ 闹钟状态
+### 闹钟状态
 - 活跃闹钟：${analysis.activeAlarms} 个
 - 下次闹钟：${analysis.nextAlarm || '无'}
 
-### 🌤️ 天气信息
+### 天气信息
 ${weather ? `当前天气：${weather.description}，温度 ${weather.temperature}°C，湿度 ${weather.humidity}%` : '天气信息未获取'}
 
-###  时间分析
+### 时间分析
 - 本周已安排时间：${analysis.weekScheduledHours.toFixed(1)} 小时
 - 平均每日事件数：${analysis.avgDailyEvents.toFixed(1)} 个
 - 时间冲突：${analysis.conflicts.length > 0 ? `${analysis.conflicts.length} 个冲突` : '无冲突'}
 
-### 🏷️ 标签分布
+### 标签分布
 ${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${count} 个事件`).join('\n') || '无标签事件'}
 
 ## 你的职责：
@@ -133,38 +158,30 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
       { role: 'user', content: userMessage }
     ];
 
-    try {
-      const config = this._resolveConfig(aiConfig);
-      switch (config.provider) {
-        case 'openai':
-          return await this.chatOpenAI(messages, config);
-        case 'anthropic':
-          return await this.chatAnthropic(messages, config);
-        case 'qwen':
-          return await this.chatQwen(messages, config);
-        default:
-          throw new Error(`不支持的 AI 提供商: ${config.provider}`);
-      }
-    } catch (error) {
-      console.error('AI 调用错误:', error);
-      throw new Error(`AI 服务调用失败: ${error.message}`);
+    const config = this._resolveConfig(aiConfig);
+    switch (config.provider) {
+      case 'openai':
+        return await this.chatOpenAI(messages, config);
+      case 'anthropic':
+        return await this.chatAnthropic(messages, config);
+      case 'qwen':
+        return await this.chatQwen(messages, config);
+      default:
+        throw new Error(`不支持的 AI 提供商: ${config.provider}`);
     }
   }
 
   async chatOpenAI(messages, config) {
-    const openai = config && config.apiKey ? new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseUrl || 'https://api.openai.com/v1'
-    }) : this.openai;
-    
+    const OpenAI = this._getOpenAI();
+    const apiKey = (config && config.apiKey) || process.env.OPENAI_API_KEY;
     const model = (config && config.model) || this.model;
-    
+    const baseURL = (config && config.baseUrl) || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+
+    const openai = new OpenAI({ apiKey, baseURL });
+
     const completion = await openai.chat.completions.create({
       model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content
-      })),
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
       temperature: 0.7,
       max_tokens: 1000
     });
@@ -173,12 +190,12 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
   }
 
   async chatAnthropic(messages, config) {
-    const anthropic = config && config.apiKey ? new Anthropic({
-      apiKey: config.apiKey
-    }) : this.anthropic;
-    
+    const Anthropic = this._getAnthropic();
+    const apiKey = (config && config.apiKey) || process.env.ANTHROPIC_API_KEY;
     const model = (config && config.model) || this.model;
-    
+
+    const anthropic = new Anthropic({ apiKey });
+
     const systemMsg = messages.find(m => m.role === 'system');
     const userMsgs = messages.filter(m => m.role !== 'system');
 
@@ -186,27 +203,26 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
       model,
       max_tokens: 1000,
       system: systemMsg ? systemMsg.content : '',
-      messages: userMsgs.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
+      messages: userMsgs.map(m => ({ role: m.role, content: m.content }))
     });
 
     return response.content[0].text;
   }
 
   async chatQwen(messages, config) {
+    const axios = this._getAxios();
     const apiKey = (config && config.apiKey) || this.qwenApiKey;
     const model = (config && config.model) || this.model;
-    
+
+    if (!apiKey) {
+      throw new Error('通义千问 API Key 未配置');
+    }
+
     const response = await axios.post(
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
       {
         model,
-        messages: messages.map(m => ({
-          role: m.role,
-          content: m.content
-        })),
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.7,
         max_tokens: 1000
       },
@@ -221,7 +237,7 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
     if (response.data && response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
       return response.data.choices[0].message.content;
     }
-    
+
     throw new Error('通义千问返回格式异常: ' + JSON.stringify(response.data));
   }
 
@@ -240,25 +256,20 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
 
 请用简洁的列表形式呈现，每条建议不超过 2 句话。`;
 
-    try {
-      const config = this._resolveConfig(aiConfig);
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ];
-      switch (config.provider) {
-        case 'openai':
-          return await this.chatOpenAI(messages, config);
-        case 'anthropic':
-          return await this.chatAnthropic(messages, config);
-        case 'qwen':
-          return await this.chatQwen(messages, config);
-        default:
-          throw new Error(`不支持的 AI 提供商: ${config.provider}`);
-      }
-    } catch (error) {
-      console.error('生成建议错误:', error);
-      throw error;
+    const config = this._resolveConfig(aiConfig);
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ];
+    switch (config.provider) {
+      case 'openai':
+        return await this.chatOpenAI(messages, config);
+      case 'anthropic':
+        return await this.chatAnthropic(messages, config);
+      case 'qwen':
+        return await this.chatQwen(messages, config);
+      default:
+        throw new Error(`不支持的 AI 提供商: ${config.provider}`);
     }
   }
 
@@ -277,25 +288,20 @@ ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：
 
 用友好、专业的语气，让用户快速了解自己的时间状况。`;
 
-    try {
-      const config = this._resolveConfig(aiConfig);
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ];
-      switch (config.provider) {
-        case 'openai':
-          return await this.chatOpenAI(messages, config);
-        case 'anthropic':
-          return await this.chatAnthropic(messages, config);
-        case 'qwen':
-          return await this.chatQwen(messages, config);
-        default:
-          throw new Error(`不支持的 AI 提供商: ${config.provider}`);
-      }
-    } catch (error) {
-      console.error('生成摘要错误:', error);
-      throw error;
+    const config = this._resolveConfig(aiConfig);
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ];
+    switch (config.provider) {
+      case 'openai':
+        return await this.chatOpenAI(messages, config);
+      case 'anthropic':
+        return await this.chatAnthropic(messages, config);
+      case 'qwen':
+        return await this.chatQwen(messages, config);
+      default:
+        throw new Error(`不支持的 AI 提供商: ${config.provider}`);
     }
   }
 
