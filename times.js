@@ -2941,10 +2941,38 @@ async function callAIAPI(messages, config) {
     }
 }
 
+// CORS 代理列表（当直接请求被浏览器阻止时使用）
+const CORS_PROXIES = [
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+
+// 带 CORS 代理回退的 fetch
+async function fetchWithProxy(url, options) {
+    // 先尝试直接请求
+    try {
+        const response = await fetch(url, options);
+        if (response.ok || response.status < 500) return response;
+    } catch (e) {
+        // 直接请求失败，尝试代理
+    }
+    // 逐个尝试 CORS 代理
+    for (const proxyFn of CORS_PROXIES) {
+        try {
+            const proxyUrl = proxyFn(url);
+            const response = await fetch(proxyUrl, options);
+            if (response.ok || response.status < 500) return response;
+        } catch (e) {
+            continue;
+        }
+    }
+    throw new Error('所有请求方式均失败，请检查网络或 API 配置');
+}
+
 // 调用 OpenAI API
 async function callOpenAI(messages, apiKey, model, baseUrl) {
     const url = (baseUrl || 'https://api.openai.com/v1') + '/chat/completions';
-    const response = await fetch(url, {
+    const response = await fetchWithProxy(url, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -2972,7 +3000,7 @@ async function callAnthropic(messages, apiKey, model) {
     const systemMsg = messages.find(m => m.role === 'system');
     const userMsgs = messages.filter(m => m.role !== 'system');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithProxy('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
             'x-api-key': apiKey,
@@ -2999,7 +3027,7 @@ async function callAnthropic(messages, apiKey, model) {
 
 // 调用通义千问 API
 async function callQwen(messages, apiKey, model) {
-    const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    const response = await fetchWithProxy('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiKey}`,
