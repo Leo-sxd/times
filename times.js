@@ -2891,7 +2891,8 @@ ${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${co
 5. 用友好、专业的语气与用户交流
 6. 提供具体的、可操作的建议
 
-请用中文回答用户的问题，回答要简洁、实用、有温度。`;
+请用中文回答用户的问题，回答要简洁、实用、有温度。
+重要：请不要使用任何 Markdown 格式（如 #、**、*、- 等符号），直接用纯文本分段回答即可。`;
 }
 
 // 构建 AI 上下文消息
@@ -3086,13 +3087,36 @@ function collectAllData() {
     return { events: eventsData, todayEvents: todayEvents, weather: weatherData, alarms: alarmsData };
 }
 
+// 清理 AI 回复中的 Markdown 格式符号
+function cleanMarkdown(text) {
+    return text
+        // 移除标题符号 #
+        .replace(/^#{1,6}\s+/gm, '')
+        // 移除粗体 ** 和 __
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/__(.+?)__/g, '$1')
+        // 移除斜体 * 和 _
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/_(.+?)_/g, '$1')
+        // 移除列表符号
+        .replace(/^[\s]*[-*+]\s+/gm, '')
+        // 移除行内代码 `
+        .replace(/`(.+?)`/g, '$1')
+        // 移除多余空行
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 // 添加消息到聊天界面
 function addAIMessage(sender, content) {
     const aiChatMessages = document.getElementById('aiChatMessages');
     const messageDiv = document.createElement('div');
     messageDiv.className = `ai-message ${sender === 'user' ? 'user' : 'ai-assistant'}`;
 
-    const formattedContent = content
+    // AI 回复清理 Markdown 格式
+    const displayContent = sender === 'ai-assistant' ? cleanMarkdown(content) : content;
+
+    const formattedContent = displayContent
         .split('\n')
         .filter(line => line.trim())
         .map(line => `<p>${line}</p>`)
@@ -3131,7 +3155,8 @@ function loadAIChatHistory() {
             aiChatHistory.forEach(msg => {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `ai-message ${msg.sender === 'user' ? 'user' : 'ai-assistant'}`;
-                const formattedContent = msg.content
+                const displayContent = msg.sender === 'ai-assistant' ? cleanMarkdown(msg.content) : msg.content;
+                const formattedContent = displayContent
                     .split('\n')
                     .filter(line => line.trim())
                     .map(line => `<p>${line}</p>`)
