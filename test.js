@@ -1,29 +1,24 @@
-const aiService = require('./aiService');
+const aiService = require('../../aiService');
 
-module.exports = async (req, res) => {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: 'Method not allowed' });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
   }
 
   try {
-    const { provider, apiKey, model, baseUrl } = req.body;
-
+    const { provider, apiKey, model, baseUrl } = JSON.parse(event.body || '{}');
     console.log('收到测试连接请求:', { provider, model, hasApiKey: !!apiKey });
 
     if (!apiKey) {
-      return res.json({ success: false, error: 'API Key 不能为空' });
+      return { statusCode: 200, body: JSON.stringify({ success: false, error: 'API Key 不能为空' }) };
     }
 
     const testConfig = { provider, apiKey, model, baseUrl };
     const result = await aiService.testConnection(testConfig);
-
     console.log('测试结果:', result);
-    res.json(result);
+    return { statusCode: 200, body: JSON.stringify(result) };
   } catch (error) {
     console.error('测试连接错误:', error);
-    res.json({
-      success: false,
-      error: error.message || '未知错误'
-    });
+    return { statusCode: 200, body: JSON.stringify({ success: false, error: error.message || '未知错误' }) };
   }
 };

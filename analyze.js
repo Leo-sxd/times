@@ -1,21 +1,18 @@
-const aiService = require('./aiService');
-const dataAnalyzer = require('./dataAnalyzer');
+const aiService = require('../../aiService');
+const dataAnalyzer = require('../../dataAnalyzer');
 
-module.exports = async (req, res) => {
-  // 只处理 POST 请求
-  if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: 'Method not allowed' });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
   }
 
   try {
-    const { events, weather, alarms, userMessage, aiConfig } = req.body;
-
+    const { events, weather, alarms, userMessage, aiConfig } = JSON.parse(event.body || '{}');
     const analysis = dataAnalyzer.analyzeAll(events, weather, alarms);
     const response = await aiService.chat(userMessage, analysis, events, weather, alarms, aiConfig);
-
-    res.json({ success: true, response, analysis });
+    return { statusCode: 200, body: JSON.stringify({ success: true, response, analysis }) };
   } catch (error) {
     console.error('分析错误:', error);
-    res.status(500).json({ success: false, error: error.message });
+    return { statusCode: 500, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
