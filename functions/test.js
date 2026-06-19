@@ -1,4 +1,4 @@
-const aiService = require('../aiService');
+const aiService = require('./aiService');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {

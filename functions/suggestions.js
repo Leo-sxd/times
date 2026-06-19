@@ -1,5 +1,5 @@
-const aiService = require('../aiService');
-const dataAnalyzer = require('../dataAnalyzer');
+const aiService = require('./aiService');
+const dataAnalyzer = require('./dataAnalyzer');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
