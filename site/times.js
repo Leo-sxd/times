@@ -2404,6 +2404,152 @@ function setupClockWeatherAlarm() {
     initAIAssistant();
 }
 
+// ==================== 数据分析器（前端版） ====================
+
+class DataAnalyzer {
+  analyzeAll(events, weather, alarms) {
+    return {
+      totalEvents: events.length,
+      todayEvents: this.getTodayEvents(events),
+      weekEvents: this.getWeekEvents(events),
+      monthEvents: this.getMonthEvents(events),
+      highPriorityEvents: this.getHighPriorityEvents(events),
+      activeAlarms: this.getActiveAlarms(alarms),
+      nextAlarm: this.getNextAlarm(alarms),
+      weekScheduledHours: this.calculateWeekScheduledHours(events),
+      avgDailyEvents: this.calculateAvgDailyEvents(events),
+      conflicts: this.detectConflicts(events),
+      tagDistribution: this.getTagDistribution(events),
+      timeDistribution: this.getTimeDistribution(events),
+      busyDays: this.getBusyDays(events)
+    };
+  }
+
+  getTodayEvents(events) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return events.filter(e => {
+      const eventStart = new Date(e.start);
+      return eventStart >= today && eventStart < tomorrow;
+    });
+  }
+
+  getWeekEvents(events) {
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    return events.filter(e => {
+      const eventStart = new Date(e.start);
+      return eventStart >= weekStart && eventStart < weekEnd;
+    });
+  }
+
+  getMonthEvents(events) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return events.filter(e => {
+      const eventStart = new Date(e.start);
+      return eventStart >= monthStart && eventStart < monthEnd;
+    });
+  }
+
+  getHighPriorityEvents(events) {
+    return events.filter(e => e.urgency >= 80);
+  }
+
+  getActiveAlarms(alarms) {
+    if (!alarms || !Array.isArray(alarms)) return 0;
+    return alarms.filter(a => a.enabled).length;
+  }
+
+  getNextAlarm(alarms) {
+    if (!alarms || !Array.isArray(alarms) || alarms.length === 0) return null;
+    const now = new Date();
+    const enabledAlarms = alarms.filter(a => a.enabled);
+    if (enabledAlarms.length === 0) return null;
+    let nextAlarm = null;
+    let minDiff = Infinity;
+    enabledAlarms.forEach(alarm => {
+      const [hours, minutes] = alarm.time.split(':');
+      const alarmDate = new Date();
+      alarmDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      if (alarmDate < now) alarmDate.setDate(alarmDate.getDate() + 1);
+      const diff = alarmDate - now;
+      if (diff < minDiff) { minDiff = diff; nextAlarm = alarmDate; }
+    });
+    return nextAlarm ? nextAlarm.toLocaleString('zh-CN') : null;
+  }
+
+  calculateWeekScheduledHours(events) {
+    const weekEvents = this.getWeekEvents(events);
+    let totalMinutes = 0;
+    weekEvents.forEach(e => {
+      const start = new Date(e.start);
+      const end = new Date(e.end);
+      totalMinutes += (end - start) / (1000 * 60);
+    });
+    return totalMinutes / 60;
+  }
+
+  calculateAvgDailyEvents(events) {
+    if (events.length === 0) return 0;
+    const dates = new Set();
+    events.forEach(e => { dates.add(new Date(e.start).toDateString()); });
+    return events.length / dates.size;
+  }
+
+  detectConflicts(events) {
+    const conflicts = [];
+    for (let i = 0; i < events.length; i++) {
+      for (let j = i + 1; j < events.length; j++) {
+        const e1Start = new Date(events[i].start);
+        const e1End = new Date(events[i].end);
+        const e2Start = new Date(events[j].start);
+        const e2End = new Date(events[j].end);
+        if (e1Start < e2End && e2Start < e1End) {
+          const overlapStart = new Date(Math.max(e1Start, e2Start));
+          const overlapEnd = new Date(Math.min(e1End, e2End));
+          const overlap = overlapStart < overlapEnd ? (overlapEnd - overlapStart) / (1000 * 60) : 0;
+          conflicts.push({ event1: events[i].name, event2: events[j].name, overlap });
+        }
+      }
+    }
+    return conflicts;
+  }
+
+  getTagDistribution(events) {
+    const distribution = {};
+    events.forEach(e => {
+      const tag = e.tag || '未分类';
+      distribution[tag] = (distribution[tag] || 0) + 1;
+    });
+    return distribution;
+  }
+
+  getTimeDistribution(events) {
+    const distribution = new Array(24).fill(0);
+    events.forEach(e => { distribution[new Date(e.start).getHours()]++; });
+    return distribution;
+  }
+
+  getBusyDays(events) {
+    const dayCounts = {};
+    events.forEach(e => {
+      const date = new Date(e.start).toDateString();
+      dayCounts[date] = (dayCounts[date] || 0) + 1;
+    });
+    return Object.values(dayCounts).filter(count => count >= 5).length;
+  }
+}
+
+const dataAnalyzer = new DataAnalyzer();
+
 // ==================== AI 智能助手 ====================
 
 // AI 状态
@@ -2509,17 +2655,11 @@ function setupAiConfigListeners() {
         testBtn.disabled = true;
 
         try {
-            const response = await fetch(`${window.location.origin}/api/test`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            const result = await response.json();
-            if (result.success) {
-                alert('连接成功！AI 服务正常工作。');
-            } else {
-                alert('连接失败：' + (result.error || '未知错误'));
-            }
+            const messages = [
+                { role: 'user', content: '请回复"连接成功"四个字。' }
+            ];
+            const response = await callAIAPI(messages, config);
+            alert('连接成功！AI 服务正常工作。回复：' + response);
         } catch (error) {
             alert('连接失败：' + error.message);
         } finally {
@@ -2563,32 +2703,26 @@ function loadAiConfig() {
     if (baseUrlInput) baseUrlInput.value = config.baseUrl;
 }
 
-// 检查后端连接
-async function checkAIBackend() {
+// 检查 AI 配置状态（纯前端，无需后端）
+function checkAIBackend() {
     const statusEl = document.getElementById('aiStatus');
-    try {
-        const response = await fetch(`${window.location.origin}/health`);
-        if (response.ok) {
-            statusEl.classList.add('online');
-            statusEl.classList.remove('offline');
-        } else {
-            throw new Error('Backend not available');
-        }
-    } catch (error) {
+    const config = getAiConfig();
+    if (config.apiKey) {
+        statusEl.classList.add('online');
+        statusEl.classList.remove('offline');
+    } else {
         statusEl.classList.add('offline');
         statusEl.classList.remove('online');
-        addAIMessage('ai', 'AI 服务未连接，请确保后端服务已启动。');
     }
 }
 
-// 发送消息
+// 发送消息（前端直接调用 AI API）
 async function sendAIMessage() {
     const aiChatInput = document.getElementById('aiChatInput');
     const message = aiChatInput.value.trim();
 
     if (!message || aiIsTyping) return;
 
-    // 检查 API Key
     const config = getAiConfig();
     if (!config.apiKey) {
         addAIMessage('ai', '请先在「设置 → AI 模型配置」中填写 API Key。');
@@ -2603,37 +2737,27 @@ async function sendAIMessage() {
 
     try {
         const data = collectAllData();
+        const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
+        const systemPrompt = buildAISystemPrompt(analysis, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.weather);
 
-        const response = await fetch(`${window.location.origin}/api/analyze`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                events: data.events,
-                weather: data.weather,
-                alarms: data.alarms,
-                userMessage: message,
-                aiConfig: config
-            })
-        });
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: contextMessage },
+            { role: 'user', content: message }
+        ];
 
-        if (!response.ok) throw new Error('请求失败');
-
-        const result = await response.json();
+        const response = await callAIAPI(messages, config);
         hideAITyping();
-
-        if (result.success) {
-            addAIMessage('ai', result.response);
-        } else {
-            addAIMessage('ai', '抱歉，处理请求时出错：' + result.error);
-        }
+        addAIMessage('ai', response);
     } catch (error) {
         hideAITyping();
-        addAIMessage('ai', '无法连接到 AI 服务，请检查后端是否运行。');
+        addAIMessage('ai', 'AI 请求失败：' + error.message);
         console.error('AI 请求错误:', error);
     }
 }
 
-// 生成摘要
+// 生成摘要（前端直接调用 AI API）
 async function generateAISummary() {
     if (aiIsTyping) return;
 
@@ -2648,36 +2772,36 @@ async function generateAISummary() {
 
     try {
         const data = collectAllData();
+        const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
+        const systemPrompt = buildAISystemPrompt(analysis, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.weather);
 
-        const response = await fetch(`${window.location.origin}/api/summary`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                events: data.events,
-                weather: data.weather,
-                alarms: data.alarms,
-                aiConfig: config
-            })
-        });
+        const prompt = `${contextMessage}
 
-        if (!response.ok) throw new Error('请求失败');
+请为用户生成一份简洁的日程摘要（200字以内），包括：
+1. 今日重点事项
+2. 本周忙碌程度评估
+3. 需要注意的时间冲突
+4. 整体时间分配评价
 
-        const result = await response.json();
+用友好、专业的语气，让用户快速了解自己的时间状况。`;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt }
+        ];
+
+        const response = await callAIAPI(messages, config);
         hideAITyping();
-
-        if (result.success) {
-            addAIMessage('ai', result.summary);
-        } else {
-            addAIMessage('ai', '生成摘要失败：' + result.error);
-        }
+        addAIMessage('ai', response);
     } catch (error) {
         hideAITyping();
-        addAIMessage('ai', '无法连接到 AI 服务。');
+        addAIMessage('ai', '生成摘要失败：' + error.message);
         console.error('AI 摘要错误:', error);
     }
 }
 
-// 获取建议
+// 获取建议（前端直接调用 AI API）
 async function getAISuggestions() {
     if (aiIsTyping) return;
 
@@ -2692,33 +2816,200 @@ async function getAISuggestions() {
 
     try {
         const data = collectAllData();
+        const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
+        const systemPrompt = buildAISystemPrompt(analysis, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.weather);
 
-        const response = await fetch(`${window.location.origin}/api/suggestions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                events: data.events,
-                weather: data.weather,
-                alarms: data.alarms,
-                aiConfig: config
-            })
-        });
+        const prompt = `${contextMessage}
 
-        if (!response.ok) throw new Error('请求失败');
+请根据以上数据，主动为用户提供 3-5 条实用的建议，包括：
+1. 今日日程优化建议
+2. 时间管理改进点
+3. 需要注意的事项（如冲突、高优先级任务等）
+4. 天气相关的提醒（如果有影响）
 
-        const result = await response.json();
+请用简洁的列表形式呈现，每条建议不超过 2 句话。`;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt }
+        ];
+
+        const response = await callAIAPI(messages, config);
         hideAITyping();
-
-        if (result.success) {
-            addAIMessage('ai', result.suggestions);
-        } else {
-            addAIMessage('ai', '获取建议失败：' + result.error);
-        }
+        addAIMessage('ai', response);
     } catch (error) {
         hideAITyping();
-        addAIMessage('ai', '无法连接到 AI 服务。');
+        addAIMessage('ai', '获取建议失败：' + error.message);
         console.error('AI 建议错误:', error);
     }
+}
+
+// 构建 AI 系统提示词
+function buildAISystemPrompt(analysis, weather) {
+    const now = new Date();
+    const currentTime = now.toLocaleString('zh-CN');
+
+    return `你是一个智能时间管理助手，专门为用户的"时空规划调度系统"提供智能分析和建议。
+
+当前时间：${currentTime}
+
+## 用户数据分析：
+
+### 事件统计
+- 总事件数：${analysis.totalEvents}
+- 今日事件：${analysis.todayEvents.length} 个
+- 本周事件：${analysis.weekEvents.length} 个
+- 本月事件：${analysis.monthEvents.length} 个
+- 高优先级事件（紧急度>=80%）：${analysis.highPriorityEvents.length} 个
+
+### 闹钟状态
+- 活跃闹钟：${analysis.activeAlarms} 个
+- 下次闹钟：${analysis.nextAlarm || '无'}
+
+### 天气信息
+${weather ? `当前天气：${weather.description}，温度 ${weather.temperature}°C，湿度 ${weather.humidity}%` : '天气信息未获取'}
+
+### 时间分析
+- 本周已安排时间：${analysis.weekScheduledHours.toFixed(1)} 小时
+- 平均每日事件数：${analysis.avgDailyEvents.toFixed(1)} 个
+- 时间冲突：${analysis.conflicts.length > 0 ? `${analysis.conflicts.length} 个冲突` : '无冲突'}
+
+### 标签分布
+${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${count} 个事件`).join('\n') || '无标签事件'}
+
+## 你的职责：
+1. 根据用户的日程安排提供优化建议
+2. 分析时间分配是否合理
+3. 检测时间冲突并提醒用户
+4. 考虑天气因素对日程的影响
+5. 用友好、专业的语气与用户交流
+6. 提供具体的、可操作的建议
+
+请用中文回答用户的问题，回答要简洁、实用、有温度。`;
+}
+
+// 构建 AI 上下文消息
+function buildAIContextMessage(events, weather) {
+    const todayEvents = events.filter(e => {
+        const eventDate = new Date(e.start);
+        const today = new Date();
+        return eventDate.toDateString() === today.toDateString();
+    });
+
+    return `## 当前详细数据：
+
+### 今日事件（${todayEvents.length} 个）
+${todayEvents.map(e => `- ${e.name} (${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}`).join('\n') || '今天没有安排事件'}
+
+### 近期高优先级事件
+${events.filter(e => e.urgency >= 80).slice(0, 5).map(e => `- ${e.name}: ${new Date(e.start).toLocaleDateString('zh-CN')} 紧急度 ${e.urgency}%`).join('\n') || '近期无高优先级事件'}
+
+### 天气详情
+${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：${weather.description}\n温度：${weather.temperature}°C\n湿度：${weather.humidity}%` : '未获取天气信息'}`;
+}
+
+// 直接调用 AI API（前端）
+async function callAIAPI(messages, config) {
+    const provider = config.provider || 'openai';
+    const apiKey = config.apiKey;
+    const model = config.model || '';
+    const baseUrl = config.baseUrl || '';
+
+    switch (provider) {
+        case 'openai':
+            return await callOpenAI(messages, apiKey, model, baseUrl);
+        case 'anthropic':
+            return await callAnthropic(messages, apiKey, model);
+        case 'qwen':
+            return await callQwen(messages, apiKey, model);
+        default:
+            throw new Error(`不支持的 AI 提供商: ${provider}`);
+    }
+}
+
+// 调用 OpenAI API
+async function callOpenAI(messages, apiKey, model, baseUrl) {
+    const url = (baseUrl || 'https://api.openai.com/v1') + '/chat/completions';
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: model || 'gpt-4',
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: 1000
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `OpenAI API 请求失败 (${response.status})`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
+// 调用 Anthropic API
+async function callAnthropic(messages, apiKey, model) {
+    const systemMsg = messages.find(m => m.role === 'system');
+    const userMsgs = messages.filter(m => m.role !== 'system');
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+            model: model || 'claude-3-sonnet-20240229',
+            max_tokens: 1000,
+            system: systemMsg ? systemMsg.content : '',
+            messages: userMsgs.map(m => ({ role: m.role, content: m.content }))
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `Anthropic API 请求失败 (${response.status})`);
+    }
+
+    const data = await response.json();
+    return data.content[0].text;
+}
+
+// 调用通义千问 API
+async function callQwen(messages, apiKey, model) {
+    const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: model || 'qwen-max',
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: 1000
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `通义千问 API 请求失败 (${response.status})`);
+    }
+
+    const data = await response.json();
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+        return data.choices[0].message.content;
+    }
+    throw new Error('通义千问返回格式异常');
 }
 
 // 收集所有数据
