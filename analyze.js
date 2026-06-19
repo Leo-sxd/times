@@ -1,5 +1,5 @@
-const aiService = require('../server/services/aiService');
-const dataAnalyzer = require('../server/services/dataAnalyzer');
+const aiService = require('./aiService');
+const dataAnalyzer = require('./dataAnalyzer');
 
 module.exports = async (req, res) => {
   // 只处理 POST 请求
