@@ -7,6 +7,14 @@ let editingEventId = null;
 let currentViewMode = localStorage.getItem('viewMode') || 'week'; // day, week, month, year
 let selectedDate = new Date(); // 用户点击选中的日期
 let viewStartDate = getViewStartDate(selectedDate, currentViewMode);
+let currentAIMode = localStorage.getItem('aiMode') || 'balanced'; // fast, balanced, wise
+
+// AI 回答模式 prompt
+const AI_MODE_PROMPTS = {
+    fast: '请直接输出最终结果，无需任何解释、推理过程、前言或总结。仅当输入信息缺失导致无法完成任务时，才用一句话说明缺什么。保持回复尽可能简短。现在处理：',
+    balanced: '在回答前，请先在内部完成正向推导与反向验证。遵循以下输出规则：\n- 若自审确认无误：直接输出最终答案，不展示任何推理过程。\n- 若自审发现错误或不确定：先输出简短的修正说明（不超过3句话），再输出修正后的最终答案。\n- 始终确保事实准确、逻辑自洽，避免幻觉。\n现在处理：',
+    wise: '你是严谨的AI推理引擎。在输出最终答案之前，你必须严格执行以下「四步自审机制」，并将完整思考过程原样展示在【推理过程】区块中，不得跳过或省略任何步骤：\n\n1. 【正向推理】：基于已知信息，逐步推导出初步结论，标明每一步的依据。\n2. 【逆向推理】：假设初步结论是错的，反推会出现什么矛盾或漏洞；再从结论倒推前提，验证逻辑链是否闭环。\n3. 【多维审阅】：核查事实准确性、数据一致性、潜在偏见、边界条件及可能的反例。\n4. 【最终裁决】：若发现问题，明确写出修正内容及理由；若确认无误，说明验证通过的依据。\n输出格式严格如下：\n【推理过程】\n（完整展示上述4个步骤的详细思考）\n【最终答案】\n（仅输出经过验证的、高可靠性的最终结果，不包含任何推理内容）\n现在处理：'
+};
 
 // 视图名称映射
 const viewNames = {
@@ -2612,6 +2620,26 @@ function initAIAssistant() {
     // 获取建议
     aiSuggestBtn.addEventListener('click', () => getAISuggestions());
 
+    // AI 回答模式切换
+    const modeBtns = document.querySelectorAll('.ai-mode-btn');
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            modeBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentAIMode = btn.dataset.mode;
+            localStorage.setItem('aiMode', currentAIMode);
+        });
+    });
+
+    // 恢复上次选择的模式
+    const savedMode = localStorage.getItem('aiMode');
+    if (savedMode) {
+        currentAIMode = savedMode;
+        modeBtns.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === savedMode);
+        });
+    }
+
     // AI 配置相关
     setupAiConfigListeners();
 
@@ -2746,10 +2774,14 @@ async function sendAIMessage() {
         const systemPrompt = buildAISystemPrompt(analysis, data.weather);
         const contextMessage = buildAIContextMessage(data.events, data.todayEvents, data.weather);
 
+        // 根据当前模式添加指令 prompt
+        const modePrompt = AI_MODE_PROMPTS[currentAIMode] || AI_MODE_PROMPTS.balanced;
+        const userMessage = modePrompt + message;
+
         const messages = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: contextMessage },
-            { role: 'user', content: message }
+            { role: 'user', content: userMessage }
         ];
 
         const response = await callAIAPI(messages, config);

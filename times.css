@@ -1696,6 +1696,37 @@ body {
     border-color: var(--btn-color);
 }
 
+.ai-mode-selector {
+    display: flex;
+    gap: 4px;
+    padding: 4px 12px;
+    border-top: 1px solid #eef0f2;
+    background: #f5f7f9;
+}
+
+.ai-mode-btn {
+    background: white;
+    border: 1px solid #dde1e6;
+    padding: 3px 12px;
+    border-radius: 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #666;
+}
+
+.ai-mode-btn:hover {
+    background: #e8f5e9;
+    border-color: var(--btn-color);
+    color: var(--btn-color);
+}
+
+.ai-mode-btn.active {
+    background: var(--btn-color);
+    color: white;
+    border-color: var(--btn-color);
+}
+
 .ai-input-area {
     display: flex;
     gap: 6px;
