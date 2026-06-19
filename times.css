@@ -34,11 +34,12 @@ body {
 /* 日历区域 */
 .calendar-section {
     flex: 0 0 350px;
-    height: 380px;
+    height: 100%;
     background: rgba(255, 255, 255, 0.6);
     border-radius: 8px;
     padding: 20px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: auto;
 }
 
 .calendar-header {
@@ -120,7 +121,7 @@ body {
 /* 预留区域 */
 .reserved-section {
     flex: 1;
-    height: 380px;
+    height: 100%;
     background: rgba(255, 255, 255, 0.6);
     border-radius: 8px;
     padding: 20px;
