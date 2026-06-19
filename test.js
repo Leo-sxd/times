@@ -1,4 +1,4 @@
-const aiService = require('../server/services/aiService');
+const aiService = require('./aiService');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
