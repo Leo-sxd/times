@@ -2929,16 +2929,53 @@ ${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${co
 
 // 构建 AI 上下文消息
 function buildAIContextMessage(events, todayEvents, weather) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
     return `## 当前详细数据：
 
 ### 今日事件（${todayEvents.length} 个）
-${todayEvents.map(e => `- ${e.name} (${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.isRecurringInstance ? ' (周期性事件)' : ''}`).join('\n') || '今天没有安排事件'}
+${todayEvents.map(e => {
+    const start = new Date(e.start);
+    const end = new Date(e.end);
+    const startDateStr = start.toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'});
+    const endDateStr = end.toLocaleDateString('zh-CN', {month: 'numeric', day: 'numeric'});
+    const startTimeStr = start.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+    const endTimeStr = end.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+    const isMultiDay = start.toDateString() !== end.toDateString();
+    const timeRange = isMultiDay 
+        ? `${startDateStr} ${startTimeStr} ~ ${endDateStr} ${endTimeStr}（跨${Math.ceil((end - start) / (24*60*60*1000))}天）`
+        : `${startTimeStr} ~ ${endTimeStr}`;
+    return `- ${e.name}（${timeRange}）紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.isRecurringInstance ? ' (周期性事件)' : ''}`;
+}).join('\n') || '今天没有安排事件'}
 
 ### 所有事件列表
-${events.map(e => `- ${e.name} (${new Date(e.start).toLocaleDateString('zh-CN')} ${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.recurring ? ' (周期性: ' + (e.recurring.mode || 'weekly') + ')' : ''}`).join('\n') || '暂无事件'}
+${events.map(e => {
+    const start = new Date(e.start);
+    const end = new Date(e.end);
+    const startDateStr = start.toLocaleDateString('zh-CN');
+    const endDateStr = end.toLocaleDateString('zh-CN');
+    const startTimeStr = start.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+    const endTimeStr = end.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+    const isMultiDay = start.toDateString() !== end.toDateString();
+    const timeRange = isMultiDay 
+        ? `${startDateStr} ${startTimeStr} ~ ${endDateStr} ${endTimeStr}（跨${Math.ceil((end - start) / (24*60*60*1000))}天）`
+        : `${startDateStr} ${startTimeStr} ~ ${endTimeStr}`;
+    return `- ${e.name}（${timeRange}）紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.recurring ? ' (周期性: ' + (e.recurring.mode || 'weekly') + ')' : ''}`;
+}).join('\n') || '暂无事件'}
 
 ### 近期高优先级事件
-${events.filter(e => e.urgency >= 80).slice(0, 5).map(e => `- ${e.name}: ${new Date(e.start).toLocaleDateString('zh-CN')} 紧急度 ${e.urgency}%`).join('\n') || '近期无高优先级事件'}
+${events.filter(e => e.urgency >= 80).slice(0, 5).map(e => {
+    const start = new Date(e.start);
+    const end = new Date(e.end);
+    const isMultiDay = start.toDateString() !== end.toDateString();
+    const timeRange = isMultiDay 
+        ? `${start.toLocaleDateString('zh-CN')} ~ ${end.toLocaleDateString('zh-CN')}`
+        : start.toLocaleDateString('zh-CN');
+    return `- ${e.name}: ${timeRange} 紧急度 ${e.urgency}%`;
+}).join('\n') || '近期无高优先级事件'}
 
 ### 天气详情
 ${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：${weather.description}\n温度：${weather.temperature}°C` : '未获取天气信息'}`;
