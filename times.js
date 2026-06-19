@@ -584,6 +584,10 @@ function renderDayView(daysHeader, eventsContainer, labelsContainer, timelineBar
     const endDate = new Date(viewStartDate);
     endDate.setDate(endDate.getDate() + 1);
     
+    // 设置网格列数（24小时）
+    daysHeader.style.gridTemplateColumns = 'repeat(24, 1fr)';
+    timelineBar.style.gridTemplateColumns = 'repeat(24, 1fr)';
+    
     // 渲染小时头部
     for (let i = 0; i < 24; i++) {
         const hourDiv = document.createElement('div');
@@ -604,6 +608,10 @@ function renderWeekView(daysHeader, eventsContainer, labelsContainer, timelineBa
     const startDate = new Date(viewStartDate);
     const endDate = new Date(viewStartDate);
     endDate.setDate(endDate.getDate() + 7);
+    
+    // 设置网格列数（7天）
+    daysHeader.style.gridTemplateColumns = 'repeat(7, 1fr)';
+    timelineBar.style.gridTemplateColumns = 'repeat(7, 1fr)';
     
     const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     
@@ -633,6 +641,7 @@ function renderMonthView(daysHeader, eventsContainer, labelsContainer, timelineB
     
     // 动态设置网格列数
     daysHeader.style.gridTemplateColumns = `repeat(${monthDays}, 1fr)`;
+    timelineBar.style.gridTemplateColumns = `repeat(${monthDays}, 1fr)`;
     
     // 渲染日期头部（当月所有天）
     for (let i = 1; i <= monthDays; i++) {
@@ -658,6 +667,10 @@ function renderYearView(daysHeader, eventsContainer, labelsContainer, timelineBa
     const yearEnd = new Date(year + 1, 0, 1);
     const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', 
                         '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    
+    // 设置网格列数（12个月）
+    daysHeader.style.gridTemplateColumns = 'repeat(12, 1fr)';
+    timelineBar.style.gridTemplateColumns = 'repeat(12, 1fr)';
     
     // 渲染12个月份头部（单行）
     for (let i = 0; i < 12; i++) {
