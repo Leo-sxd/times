@@ -2609,6 +2609,8 @@ function initAIAssistant() {
     // 快捷按钮
     aiQuickBtns.forEach(btn => {
         btn.addEventListener('click', () => {
+            // 摘要和建议按钮有独立的处理函数，不通过快捷按钮逻辑
+            if (btn.id === 'aiSummaryBtn' || btn.id === 'aiSuggestBtn') return;
             aiChatInput.value = btn.dataset.question;
             sendAIMessage();
         });
