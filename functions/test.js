@@ -1,11 +1,21 @@
-const aiService = require('./aiService');
+let aiService;
+try {
+  aiService = require('./aiService');
+} catch (e) {
+  console.error('加载 aiService 失败:', e.message);
+  aiService = null;
+}
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
-  }
-
   try {
+    if (event.httpMethod !== 'POST') {
+      return { statusCode: 405, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+    }
+
+    if (!aiService) {
+      return { statusCode: 500, body: JSON.stringify({ success: false, error: 'AI 服务模块加载失败' }) };
+    }
+
     const { provider, apiKey, model, baseUrl } = JSON.parse(event.body || '{}');
     console.log('收到测试连接请求:', { provider, model, hasApiKey: !!apiKey });
 
