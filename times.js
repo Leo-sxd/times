@@ -2868,16 +2868,23 @@ function exportToExcel() {
     }
 
     // 准备导出数据
-    const exportData = events.map((e, index) => ({
-        '序号': index + 1,
-        '事件名称': e.name,
-        '描述': e.description || '',
-        '开始时间': formatDateTime(e.start),
-        '结束时间': formatDateTime(e.end),
-        '紧急程度': e.urgency + '%',
-        '标签': e.tag || '未分类',
-        '持续时间(分钟)': calculateDuration(e.start, e.end)
-    }));
+    const exportData = events.map((e, index) => {
+        const isRecurring = !!e.recurring;
+        const recurringModeMap = { weekly: '按周循环', monthly: '按月循环', custom: '自定义日期范围' };
+        return {
+            '序号': index + 1,
+            '事件名称': e.name,
+            '描述': e.description || '',
+            '开始时间': formatDateTime(e.start),
+            '结束时间': formatDateTime(e.end),
+            '紧急程度': e.urgency + '%',
+            '标签': e.tag || '未分类',
+            '持续时间(分钟)': calculateDuration(e.start, e.end),
+            '是否周期性': isRecurring ? '是' : '否',
+            '循环模式': isRecurring ? (recurringModeMap[e.recurring.mode] || e.recurring.mode) : '',
+            '周期结束日期': isRecurring && e.recurring.endDate ? e.recurring.endDate : ''
+        };
+    });
 
     // 创建工作簿
     const wb = XLSX.utils.book_new();
@@ -2892,7 +2899,10 @@ function exportToExcel() {
         { wch: 20 },  // 结束时间
         { wch: 10 },  // 紧急程度
         { wch: 12 },  // 标签
-        { wch: 14 }   // 持续时间
+        { wch: 14 },  // 持续时间
+        { wch: 12 },  // 是否周期性
+        { wch: 16 },  // 循环模式
+        { wch: 16 }   // 周期结束日期
     ];
 
     // 添加工作表
@@ -2964,6 +2974,9 @@ function importFromExcel(file) {
                 const endRaw = row['结束时间'] || row['end'] || row['End'] || row['结束'] || '';
                 const urgencyRaw = row['紧急程度'] || row['urgency'] || row['Urgency'] || row['紧急度'] || '50';
                 const tag = row['标签'] || row['tag'] || row['Tag'] || row['分类'] || '';
+                const isRecurringRaw = row['是否周期性'] || row['recurring'] || row['Recurring'] || '';
+                const recurringModeRaw = row['循环模式'] || row['mode'] || row['Mode'] || '';
+                const recurringEndDateRaw = row['周期结束日期'] || row['endDate'] || row['EndDate'] || '';
 
                 // 验证必填字段
                 if (!name) {
@@ -2993,14 +3006,25 @@ function importFromExcel(file) {
                 if (isNaN(urgency) || urgency < 0) urgency = 50;
                 if (urgency > 100) urgency = 100;
 
+                // 解析周期性配置
+                const isRecurring = String(isRecurringRaw).trim() === '是';
+                let recurringConfig = null;
+                if (isRecurring) {
+                    const modeMap = { '按周循环': 'weekly', '按月循环': 'monthly', '自定义日期范围': 'custom' };
+                    const mode = modeMap[String(recurringModeRaw).trim()] || String(recurringModeRaw).trim() || 'weekly';
+                    const endDate = recurringEndDateRaw ? String(recurringEndDateRaw).trim() : null;
+                    recurringConfig = { mode, endDate };
+                }
+
                 newEvents.push({
-                    id: Date.now() + Math.random(),
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
                     name: String(name).trim(),
                     description: String(description).trim(),
                     start: start.toISOString(),
                     end: end.toISOString(),
                     urgency: urgency,
-                    tag: String(tag).trim()
+                    tag: String(tag).trim(),
+                    recurring: recurringConfig
                 });
             });
 
