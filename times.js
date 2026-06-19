@@ -2443,10 +2443,8 @@ class DataAnalyzer {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return events.filter(e => {
-      const eventStart = new Date(e.start);
-      return eventStart >= today && eventStart < tomorrow;
-    });
+    // 使用 getEventsInRange 自动展开周期性事件
+    return getEventsInRange(today, tomorrow);
   }
 
   getWeekEvents(events) {
@@ -2456,20 +2454,14 @@ class DataAnalyzer {
     weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 7);
-    return events.filter(e => {
-      const eventStart = new Date(e.start);
-      return eventStart >= weekStart && eventStart < weekEnd;
-    });
+    return getEventsInRange(weekStart, weekEnd);
   }
 
   getMonthEvents(events) {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return events.filter(e => {
-      const eventStart = new Date(e.start);
-      return eventStart >= monthStart && eventStart < monthEnd;
-    });
+    return getEventsInRange(monthStart, monthEnd);
   }
 
   getHighPriorityEvents(events) {
@@ -2752,7 +2744,7 @@ async function sendAIMessage() {
         const data = collectAllData();
         const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
         const systemPrompt = buildAISystemPrompt(analysis, data.weather);
-        const contextMessage = buildAIContextMessage(data.events, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.todayEvents, data.weather);
 
         const messages = [
             { role: 'system', content: systemPrompt },
@@ -2787,7 +2779,7 @@ async function generateAISummary() {
         const data = collectAllData();
         const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
         const systemPrompt = buildAISystemPrompt(analysis, data.weather);
-        const contextMessage = buildAIContextMessage(data.events, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.todayEvents, data.weather);
 
         const prompt = `${contextMessage}
 
@@ -2831,7 +2823,7 @@ async function getAISuggestions() {
         const data = collectAllData();
         const analysis = dataAnalyzer.analyzeAll(data.events, data.weather, data.alarms);
         const systemPrompt = buildAISystemPrompt(analysis, data.weather);
-        const contextMessage = buildAIContextMessage(data.events, data.weather);
+        const contextMessage = buildAIContextMessage(data.events, data.todayEvents, data.weather);
 
         const prompt = `${contextMessage}
 
@@ -2903,23 +2895,20 @@ ${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${co
 }
 
 // 构建 AI 上下文消息
-function buildAIContextMessage(events, weather) {
-    const todayEvents = events.filter(e => {
-        const eventDate = new Date(e.start);
-        const today = new Date();
-        return eventDate.toDateString() === today.toDateString();
-    });
-
+function buildAIContextMessage(events, todayEvents, weather) {
     return `## 当前详细数据：
 
 ### 今日事件（${todayEvents.length} 个）
-${todayEvents.map(e => `- ${e.name} (${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}`).join('\n') || '今天没有安排事件'}
+${todayEvents.map(e => `- ${e.name} (${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.isRecurringInstance ? ' (周期性事件)' : ''}`).join('\n') || '今天没有安排事件'}
+
+### 所有事件列表
+${events.map(e => `- ${e.name} (${new Date(e.start).toLocaleDateString('zh-CN')} ${new Date(e.start).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} - ${new Date(e.end).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}) 紧急度: ${e.urgency}%${e.tag ? ` [${e.tag}]` : ''}${e.recurring ? ' (周期性: ' + (e.recurring.mode || 'weekly') + ')' : ''}`).join('\n') || '暂无事件'}
 
 ### 近期高优先级事件
 ${events.filter(e => e.urgency >= 80).slice(0, 5).map(e => `- ${e.name}: ${new Date(e.start).toLocaleDateString('zh-CN')} 紧急度 ${e.urgency}%`).join('\n') || '近期无高优先级事件'}
 
 ### 天气详情
-${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：${weather.description}\n温度：${weather.temperature}°C\n湿度：${weather.humidity}%` : '未获取天气信息'}`;
+${weather ? `地区：${weather.city || ''} ${weather.district || ''}\n天气：${weather.description}\n温度：${weather.temperature}°C` : '未获取天气信息'}`;
 }
 
 // 直接调用 AI API（前端）
@@ -3055,6 +3044,15 @@ async function callQwen(messages, apiKey, model) {
 
 // 收集所有数据
 function collectAllData() {
+    // 获取今天的开始和结束时间
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // 使用 getEventsInRange 自动展开周期性事件
+    const todayEvents = getEventsInRange(today, tomorrow);
+    
     const eventsData = events.map(e => ({
         name: e.name,
         description: e.description,
@@ -3085,7 +3083,7 @@ function collectAllData() {
         repeat: a.repeat
     }));
 
-    return { events: eventsData, weather: weatherData, alarms: alarmsData };
+    return { events: eventsData, todayEvents: todayEvents, weather: weatherData, alarms: alarmsData };
 }
 
 // 添加消息到聊天界面
