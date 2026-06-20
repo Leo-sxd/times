@@ -3204,10 +3204,11 @@ function addAIMessage(sender, content) {
 
     let displayContent = content;
 
-    if (sender === 'ai-assistant') {
+    // AI 回复时解析指令并清理格式
+    if (sender !== 'user') {
         // 先解析并执行页面控制指令
         executePageCommands(content);
-        // 从显示内容中移除 @ 指令（如 @switch view day、@scroll top）
+        // 从显示内容中移除 @ 指令
         displayContent = content.replace(/@switch\s+view\s+(day|week|month|year)/gi, '')
                                 .replace(/@scroll\s+(up|down|top|bottom)/gi, '')
                                 .replace(/@add\s+event/gi, '')
@@ -3218,7 +3219,7 @@ function addAIMessage(sender, content) {
     }
 
     // AI 回复清理 Markdown 格式
-    displayContent = sender === 'ai-assistant' ? cleanMarkdown(displayContent) : displayContent;
+    displayContent = sender !== 'user' ? cleanMarkdown(displayContent) : displayContent;
 
     const formattedContent = displayContent
         .split('\n')
