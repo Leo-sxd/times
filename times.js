@@ -3202,15 +3202,17 @@ function addAIMessage(sender, content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `ai-message ${sender === 'user' ? 'user' : 'ai-assistant'}`;
 
-    // AI 回复清理 Markdown 格式
-    let displayContent = sender === 'ai-assistant' ? cleanMarkdown(content) : content;
+    let displayContent = content;
 
-    // 解析并执行页面控制指令
+    // 解析并执行页面控制指令（在清理 Markdown 之前执行，确保 @ 指令不被破坏）
     if (sender === 'ai-assistant') {
-        executePageCommands(displayContent);
+        executePageCommands(content);
         // 从显示内容中移除指令
-        displayContent = displayContent.replace(/@\w+(?:\s+\w+)*/g, '').trim();
+        displayContent = content.replace(/@\w+(?:\s+\w+)*/g, '').trim();
     }
+
+    // AI 回复清理 Markdown 格式
+    displayContent = sender === 'ai-assistant' ? cleanMarkdown(displayContent) : displayContent;
 
     const formattedContent = displayContent
         .split('\n')
@@ -3229,13 +3231,16 @@ function addAIMessage(sender, content) {
 
 // 执行页面控制指令
 function executePageCommands(content) {
+    console.log('[指令解析] 原始内容:', content);
     const commands = content.match(/@\w+(?:\s+\w+)*/g) || [];
+    console.log('[指令解析] 匹配到的指令:', commands);
     
     commands.forEach(cmd => {
         const parts = cmd.substring(1).split(/\s+/); // 移除 @ 符号
         const action = parts[0];
         const target = parts[1];
         const subTarget = parts[2];
+        console.log('[指令执行]', action, target, subTarget);
 
         switch (action) {
             case 'scroll':
@@ -3281,7 +3286,6 @@ function executePageCommands(content) {
                 break;
             
             case 'today':
-                // 跳转到今天的日期
                 currentDate = new Date();
                 currentMonth = currentDate.getMonth();
                 currentYear = currentDate.getFullYear();
