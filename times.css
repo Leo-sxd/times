@@ -1783,6 +1783,75 @@ body {
     transform: none;
 }
 
+/* 语音按钮 */
+.ai-input-area .ai-voice-btn {
+    background: #f0f0f0;
+    border: none;
+    color: #555;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.ai-input-area .ai-voice-btn:hover {
+    background: #e0e0e0;
+    transform: scale(1.05);
+}
+
+.ai-input-area .ai-voice-btn.listening {
+    background: #ff4444;
+    color: white;
+    animation: voice-pulse 1s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(255, 68, 68, 0); }
+}
+
+/* 语音设置 */
+.voice-status-bar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #fff3e0;
+    border-top: 1px solid #ffe0b2;
+    font-size: 12px;
+    color: #e65100;
+}
+
+.voice-status-bar.active {
+    display: flex;
+}
+
+.voice-status-bar .voice-timer {
+    font-weight: bold;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+.voice-status-bar .voice-stop-btn {
+    margin-left: auto;
+    background: #ff4444;
+    color: white;
+    border: none;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.voice-status-bar .voice-stop-btn:hover {
+    background: #cc0000;
+}
+
 .ai-typing {
     display: flex;
     gap: 4px;

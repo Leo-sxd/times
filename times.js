@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     loadBackgroundSettings();
     setupClockWeatherAlarm();
+    initVoiceSearch();
     
     // 每分钟更新一次事件优先级
     setInterval(() => {
@@ -3537,4 +3538,283 @@ function parseImportDate(value) {
     }
 
     return null;
+}
+
+// ==================== 语音搜索功能 ====================
+
+// 语音搜索配置
+let voiceConfig = {
+    shortcut: localStorage.getItem('voiceShortcut') || 'Ctrl+Shift+V',
+    duration: parseInt(localStorage.getItem('voiceDuration')) || 10,
+    autoStop: localStorage.getItem('voiceAutoStop') === 'true'
+};
+
+// 语音识别相关变量
+let recognition = null;
+let isListening = false;
+let voiceTimer = null;
+let voiceStartTime = null;
+let silenceTimer = null;
+let lastVoiceTime = 0;
+
+// 初始化语音搜索
+function initVoiceSearch() {
+    const voiceBtn = document.getElementById('aiVoiceBtn');
+    const voiceStopBtn = document.getElementById('voiceStopBtn');
+    const voiceShortcutInput = document.getElementById('voiceShortcut');
+    const voiceDurationInput = document.getElementById('voiceDuration');
+    const voiceAutoStopCheckbox = document.getElementById('voiceAutoStop');
+    const saveVoiceConfigBtn = document.getElementById('saveVoiceConfigBtn');
+    const resetVoiceShortcutBtn = document.getElementById('resetVoiceShortcutBtn');
+
+    if (!voiceBtn) return;
+
+    // 加载语音配置
+    loadVoiceConfig();
+
+    // 检查浏览器是否支持语音识别
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        voiceBtn.disabled = true;
+        voiceBtn.title = '浏览器不支持语音识别';
+        voiceBtn.style.opacity = '0.5';
+        voiceBtn.style.cursor = 'not-allowed';
+        return;
+    }
+
+    // 创建语音识别实例
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'zh-CN';
+
+    recognition.onstart = () => {
+        isListening = true;
+        voiceBtn.classList.add('listening');
+        document.getElementById('voiceStatusBar').classList.add('active');
+        voiceStartTime = Date.now();
+        lastVoiceTime = Date.now();
+        updateVoiceTimer();
+    };
+
+    recognition.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+
+        if (finalTranscript) {
+            const aiChatInput = document.getElementById('aiChatInput');
+            aiChatInput.value = finalTranscript;
+            stopVoiceListening();
+            sendAIMessage();
+        }
+
+        lastVoiceTime = Date.now();
+    };
+
+    recognition.onerror = (event) => {
+        console.error('语音识别错误:', event.error);
+        if (event.error === 'no-speech') {
+            // 无语音输入，继续监听
+        } else {
+            stopVoiceListening();
+        }
+    };
+
+    recognition.onend = () => {
+        if (isListening) {
+            // 如果仍在监听状态，重新启动（某些浏览器会自动停止）
+            try {
+                recognition.start();
+            } catch (e) {
+                stopVoiceListening();
+            }
+        }
+    };
+
+    // 点击语音按钮
+    voiceBtn.addEventListener('click', () => {
+        if (isListening) {
+            stopVoiceListening();
+        } else {
+            startVoiceListening();
+        }
+    });
+
+    // 点击停止按钮
+    if (voiceStopBtn) {
+        voiceStopBtn.addEventListener('click', () => {
+            stopVoiceListening();
+        });
+    }
+
+    // 快捷键设置输入框
+    if (voiceShortcutInput) {
+        voiceShortcutInput.addEventListener('keydown', (e) => {
+            e.preventDefault();
+            const keys = [];
+            if (e.ctrlKey) keys.push('Ctrl');
+            if (e.shiftKey) keys.push('Shift');
+            if (e.altKey) keys.push('Alt');
+            if (e.metaKey) keys.push('Meta');
+            
+            // 添加主键
+            if (e.key && !['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+                keys.push(e.key.toUpperCase());
+            }
+            
+            if (keys.length > 0) {
+                voiceShortcutInput.value = keys.join('+');
+            }
+        });
+    }
+
+    // 自动停止复选框变化
+    if (voiceAutoStopCheckbox) {
+        voiceAutoStopCheckbox.addEventListener('change', () => {
+            if (voiceDurationInput) {
+                voiceDurationInput.disabled = voiceAutoStopCheckbox.checked;
+            }
+        });
+    }
+
+    // 保存语音配置
+    if (saveVoiceConfigBtn) {
+        saveVoiceConfigBtn.addEventListener('click', () => {
+            voiceConfig.shortcut = voiceShortcutInput.value || 'Ctrl+Shift+V';
+            voiceConfig.duration = parseInt(voiceDurationInput.value) || 10;
+            voiceConfig.autoStop = voiceAutoStopCheckbox.checked;
+            
+            localStorage.setItem('voiceShortcut', voiceConfig.shortcut);
+            localStorage.setItem('voiceDuration', voiceConfig.duration);
+            localStorage.setItem('voiceAutoStop', voiceConfig.autoStop);
+            
+            alert('语音搜索配置已保存！');
+        });
+    }
+
+    // 重置快捷键
+    if (resetVoiceShortcutBtn) {
+        resetVoiceShortcutBtn.addEventListener('click', () => {
+            voiceShortcutInput.value = 'Ctrl+Shift+V';
+        });
+    }
+
+    // 全局快捷键监听
+    document.addEventListener('keydown', (e) => {
+        const keys = [];
+        if (e.ctrlKey) keys.push('Ctrl');
+        if (e.shiftKey) keys.push('Shift');
+        if (e.altKey) keys.push('Alt');
+        if (e.metaKey) keys.push('Meta');
+        if (e.key && !['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+            keys.push(e.key.toUpperCase());
+        }
+        
+        const currentShortcut = keys.join('+');
+        if (currentShortcut === voiceConfig.shortcut) {
+            e.preventDefault();
+            if (isListening) {
+                stopVoiceListening();
+            } else {
+                startVoiceListening();
+            }
+        }
+    });
+}
+
+// 开始语音监听
+function startVoiceListening() {
+    if (!recognition || isListening) return;
+    
+    try {
+        recognition.start();
+    } catch (e) {
+        console.error('启动语音识别失败:', e);
+    }
+}
+
+// 停止语音监听
+function stopVoiceListening() {
+    isListening = false;
+    if (recognition) {
+        try {
+            recognition.stop();
+        } catch (e) {
+            console.error('停止语音识别失败:', e);
+        }
+    }
+    
+    const voiceBtn = document.getElementById('aiVoiceBtn');
+    if (voiceBtn) {
+        voiceBtn.classList.remove('listening');
+    }
+    
+    document.getElementById('voiceStatusBar').classList.remove('active');
+    
+    if (voiceTimer) {
+        clearInterval(voiceTimer);
+        voiceTimer = null;
+    }
+    
+    if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+    }
+}
+
+// 更新语音计时器
+function updateVoiceTimer() {
+    if (!isListening) return;
+    
+    const elapsed = Math.floor((Date.now() - voiceStartTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    const timerEl = document.getElementById('voiceTimer');
+    if (timerEl) {
+        timerEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    
+    // 检查是否超过最大时长
+    if (elapsed >= voiceConfig.duration) {
+        stopVoiceListening();
+        return;
+    }
+    
+    // 检查是否启用自动停止
+    if (voiceConfig.autoStop) {
+        const silenceDuration = Date.now() - lastVoiceTime;
+        if (silenceDuration > 3000) { // 3秒无声音则停止
+            stopVoiceListening();
+            return;
+        }
+    }
+    
+    voiceTimer = setTimeout(updateVoiceTimer, 100);
+}
+
+// 加载语音配置
+function loadVoiceConfig() {
+    const voiceShortcutInput = document.getElementById('voiceShortcut');
+    const voiceDurationInput = document.getElementById('voiceDuration');
+    const voiceAutoStopCheckbox = document.getElementById('voiceAutoStop');
+    
+    if (voiceShortcutInput) {
+        voiceShortcutInput.value = voiceConfig.shortcut;
+    }
+    if (voiceDurationInput) {
+        voiceDurationInput.value = voiceConfig.duration;
+        voiceDurationInput.disabled = voiceConfig.autoStop;
+    }
+    if (voiceAutoStopCheckbox) {
+        voiceAutoStopCheckbox.checked = voiceConfig.autoStop;
+    }
 }
