@@ -2927,7 +2927,24 @@ ${Object.entries(analysis.tagDistribution).map(([tag, count]) => `- ${tag}: ${co
 6. 提供具体的、可操作的建议
 
 请用中文回答用户的问题，回答要简洁、实用、有温度。
-重要：请不要使用任何 Markdown 格式（如 #、**、*、- 等符号），直接用纯文本分段回答即可。`;
+重要：请不要使用任何 Markdown 格式（如 #、**、*、- 等符号），直接用纯文本分段回答即可。
+
+## 页面控制指令
+你可以在回复中使用以下指令来控制用户的页面，指令格式为 @指令名，可以放在回复的任意位置：
+
+@scroll up - 向上滚动页面
+@scroll down - 向下滚动页面
+@scroll top - 滚动到页面顶部
+@scroll bottom - 滚动到页面底部
+@switch view day - 切换到日视图
+@switch view week - 切换到周视图
+@switch view month - 切换到月视图
+@switch view year - 切换到年视图
+@add event - 打开添加事件窗口
+@open settings - 打开设置面板
+@today - 跳转到今天
+
+使用示例：用户问"帮我看看今天的安排"，你可以回复"好的，我来帮你查看今天的安排。@switch view day @scroll top"`;
 }
 
 // 构建 AI 上下文消息
@@ -3186,7 +3203,14 @@ function addAIMessage(sender, content) {
     messageDiv.className = `ai-message ${sender === 'user' ? 'user' : 'ai-assistant'}`;
 
     // AI 回复清理 Markdown 格式
-    const displayContent = sender === 'ai-assistant' ? cleanMarkdown(content) : content;
+    let displayContent = sender === 'ai-assistant' ? cleanMarkdown(content) : content;
+
+    // 解析并执行页面控制指令
+    if (sender === 'ai-assistant') {
+        executePageCommands(displayContent);
+        // 从显示内容中移除指令
+        displayContent = displayContent.replace(/@\w+(?:\s+\w+)*/g, '').trim();
+    }
 
     const formattedContent = displayContent
         .split('\n')
@@ -3201,6 +3225,73 @@ function addAIMessage(sender, content) {
 
     aiChatHistory.push({ sender, content });
     saveAIChatHistory();
+}
+
+// 执行页面控制指令
+function executePageCommands(content) {
+    const commands = content.match(/@\w+(?:\s+\w+)*/g) || [];
+    
+    commands.forEach(cmd => {
+        const parts = cmd.substring(1).split(/\s+/); // 移除 @ 符号
+        const action = parts[0];
+        const target = parts[1];
+        const subTarget = parts[2];
+
+        switch (action) {
+            case 'scroll':
+                if (target === 'up') {
+                    window.scrollBy({ top: -300, behavior: 'smooth' });
+                } else if (target === 'down') {
+                    window.scrollBy({ top: 300, behavior: 'smooth' });
+                } else if (target === 'top') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } else if (target === 'bottom') {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }
+                break;
+            
+            case 'switch':
+                if (target === 'view') {
+                    const viewMode = subTarget;
+                    if (['day', 'week', 'month', 'year'].includes(viewMode)) {
+                        const viewBtn = document.querySelector(`.view-btn[data-view="${viewMode}"]`);
+                        if (viewBtn) {
+                            viewBtn.click();
+                        }
+                    }
+                }
+                break;
+            
+            case 'add':
+                if (target === 'event') {
+                    const addEventBtn = document.getElementById('addEventBtn');
+                    if (addEventBtn) {
+                        addEventBtn.click();
+                    }
+                }
+                break;
+            
+            case 'open':
+                if (target === 'settings') {
+                    const settingsBtn = document.getElementById('settingsBtn');
+                    if (settingsBtn) {
+                        settingsBtn.click();
+                    }
+                }
+                break;
+            
+            case 'today':
+                // 跳转到今天的日期
+                currentDate = new Date();
+                currentMonth = currentDate.getMonth();
+                currentYear = currentDate.getFullYear();
+                selectedDate = new Date();
+                renderCalendar();
+                updateViewStartDate();
+                renderGanttChart();
+                break;
+        }
+    });
 }
 
 // 保存聊天记录到 localStorage
