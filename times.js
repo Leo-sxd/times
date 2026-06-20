@@ -3204,11 +3204,17 @@ function addAIMessage(sender, content) {
 
     let displayContent = content;
 
-    // 解析并执行页面控制指令（在清理 Markdown 之前执行，确保 @ 指令不被破坏）
     if (sender === 'ai-assistant') {
+        // 先解析并执行页面控制指令
         executePageCommands(content);
-        // 从显示内容中移除指令
-        displayContent = content.replace(/@\w+(?:\s+\w+)*/g, '').trim();
+        // 从显示内容中移除 @ 指令（如 @switch view day、@scroll top）
+        displayContent = content.replace(/@switch\s+view\s+(day|week|month|year)/gi, '')
+                                .replace(/@scroll\s+(up|down|top|bottom)/gi, '')
+                                .replace(/@add\s+event/gi, '')
+                                .replace(/@open\s+settings/gi, '')
+                                .replace(/@today/gi, '')
+                                .replace(/\s{2,}/g, ' ')
+                                .trim();
     }
 
     // AI 回复清理 Markdown 格式
@@ -3229,63 +3235,86 @@ function addAIMessage(sender, content) {
     saveAIChatHistory();
 }
 
-// 执行页面控制指令（通过关键词自动检测）
+// 执行页面控制指令（同时支持 @ 指令和自然语言关键词）
 function executePageCommands(content) {
     const lowerContent = content.toLowerCase();
     
+    // === @ 指令解析 ===
+    const atCommands = content.match(/@\w+(?:\s+\w+)*/g) || [];
+    atCommands.forEach(cmd => {
+        const parts = cmd.substring(1).trim().split(/\s+/);
+        const action = parts[0];
+        const target = parts[1];
+        const subTarget = parts[2];
+
+        if (action === 'scroll') {
+            if (target === 'up') window.scrollBy({ top: -300, behavior: 'smooth' });
+            else if (target === 'down') window.scrollBy({ top: 300, behavior: 'smooth' });
+            else if (target === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
+            else if (target === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        } else if (action === 'switch' && target === 'view') {
+            const viewBtn = document.querySelector(`.view-btn[data-view="${subTarget}"]`);
+            if (viewBtn) viewBtn.click();
+        } else if (action === 'add' && target === 'event') {
+            const btn = document.getElementById('addEventBtn');
+            if (btn) btn.click();
+        } else if (action === 'open' && target === 'settings') {
+            const btn = document.getElementById('settingsBtn');
+            if (btn) btn.click();
+        } else if (action === 'today') {
+            currentDate = new Date();
+            currentMonth = currentDate.getMonth();
+            currentYear = currentDate.getFullYear();
+            selectedDate = new Date();
+            renderCalendar();
+            updateViewStartDate();
+            renderGanttChart();
+        }
+    });
+
+    // === 自然语言关键词检测 ===
     // 滚动控制
-    if (lowerContent.includes('向上滚动') || lowerContent.includes('往上滚') || lowerContent.includes('scroll up')) {
+    if (lowerContent.includes('向上滚动') || lowerContent.includes('往上滚')) {
         window.scrollBy({ top: -300, behavior: 'smooth' });
     }
-    if (lowerContent.includes('向下滚动') || lowerContent.includes('往下滚') || lowerContent.includes('scroll down')) {
+    if (lowerContent.includes('向下滚动') || lowerContent.includes('往下滚')) {
         window.scrollBy({ top: 300, behavior: 'smooth' });
     }
-    if (lowerContent.includes('滚动到顶部') || lowerContent.includes('回到顶部') || lowerContent.includes('scroll top')) {
+    if (lowerContent.includes('滚动到顶部') || lowerContent.includes('回到顶部')) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    if (lowerContent.includes('滚动到底部') || lowerContent.includes('去底部') || lowerContent.includes('scroll bottom')) {
+    if (lowerContent.includes('滚动到底部') || lowerContent.includes('去底部')) {
         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
     
     // 视图切换
-    if (lowerContent.includes('切换到日视图') || lowerContent.includes('日视图') || lowerContent.includes('switch view day')) {
+    if (lowerContent.includes('切换到日视图') || lowerContent.includes('日视图')) {
         const viewBtn = document.querySelector('.view-btn[data-view="day"]');
         if (viewBtn) viewBtn.click();
     }
-    if (lowerContent.includes('切换到周视图') || lowerContent.includes('周视图') || lowerContent.includes('switch view week')) {
+    if (lowerContent.includes('切换到周视图') || lowerContent.includes('周视图')) {
         const viewBtn = document.querySelector('.view-btn[data-view="week"]');
         if (viewBtn) viewBtn.click();
     }
-    if (lowerContent.includes('切换到月视图') || lowerContent.includes('月视图') || lowerContent.includes('switch view month')) {
+    if (lowerContent.includes('切换到月视图') || lowerContent.includes('月视图')) {
         const viewBtn = document.querySelector('.view-btn[data-view="month"]');
         if (viewBtn) viewBtn.click();
     }
-    if (lowerContent.includes('切换到年视图') || lowerContent.includes('年视图') || lowerContent.includes('switch view year')) {
+    if (lowerContent.includes('切换到年视图') || lowerContent.includes('年视图')) {
         const viewBtn = document.querySelector('.view-btn[data-view="year"]');
         if (viewBtn) viewBtn.click();
     }
     
     // 添加事件
-    if (lowerContent.includes('添加事件') || lowerContent.includes('新建事件') || lowerContent.includes('add event')) {
+    if (lowerContent.includes('添加事件') || lowerContent.includes('新建事件')) {
         const addEventBtn = document.getElementById('addEventBtn');
         if (addEventBtn) addEventBtn.click();
     }
     
     // 打开设置
-    if (lowerContent.includes('打开设置') || lowerContent.includes('设置面板') || lowerContent.includes('open settings')) {
+    if (lowerContent.includes('打开设置') || lowerContent.includes('设置面板')) {
         const settingsBtn = document.getElementById('settingsBtn');
         if (settingsBtn) settingsBtn.click();
-    }
-    
-    // 跳转到今天
-    if (lowerContent.includes('今天') && (lowerContent.includes('跳转') || lowerContent.includes('回到') || lowerContent.includes('@today'))) {
-        currentDate = new Date();
-        currentMonth = currentDate.getMonth();
-        currentYear = currentDate.getFullYear();
-        selectedDate = new Date();
-        renderCalendar();
-        updateViewStartDate();
-        renderGanttChart();
     }
 }
 
