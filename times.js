@@ -3198,6 +3198,7 @@ function cleanMarkdown(text) {
 
 // 添加消息到聊天界面
 function addAIMessage(sender, content) {
+    console.log('[AI消息] sender:', sender, 'content:', content);
     const aiChatMessages = document.getElementById('aiChatMessages');
     const messageDiv = document.createElement('div');
     messageDiv.className = `ai-message ${sender === 'user' ? 'user' : 'ai-assistant'}`;
@@ -3206,6 +3207,7 @@ function addAIMessage(sender, content) {
 
     // AI 回复时解析指令并清理格式
     if (sender !== 'user') {
+        console.log('[AI消息] 开始解析指令...');
         // 先解析并执行页面控制指令
         executePageCommands(content);
         // 从显示内容中移除 @ 指令
@@ -3216,6 +3218,7 @@ function addAIMessage(sender, content) {
                                 .replace(/@today/gi, '')
                                 .replace(/\s{2,}/g, ' ')
                                 .trim();
+        console.log('[AI消息] 清理后的内容:', displayContent);
     }
 
     // AI 回复清理 Markdown 格式
@@ -3238,31 +3241,54 @@ function addAIMessage(sender, content) {
 
 // 执行页面控制指令（同时支持 @ 指令和自然语言关键词）
 function executePageCommands(content) {
+    console.log('[指令执行] 输入内容:', content);
     const lowerContent = content.toLowerCase();
     
     // === @ 指令解析 ===
     const atCommands = content.match(/@\w+(?:\s+\w+)*/g) || [];
+    console.log('[指令执行] 匹配到的@指令:', atCommands);
+    
     atCommands.forEach(cmd => {
+        console.log('[指令执行] 处理指令:', cmd);
         const parts = cmd.substring(1).trim().split(/\s+/);
         const action = parts[0];
         const target = parts[1];
         const subTarget = parts[2];
+        console.log('[指令执行] action:', action, 'target:', target, 'subTarget:', subTarget);
 
         if (action === 'scroll') {
-            if (target === 'up') window.scrollBy({ top: -300, behavior: 'smooth' });
-            else if (target === 'down') window.scrollBy({ top: 300, behavior: 'smooth' });
-            else if (target === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
-            else if (target === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            if (target === 'up') {
+                console.log('[指令执行] 执行: 向上滚动');
+                window.scrollBy({ top: -300, behavior: 'smooth' });
+            } else if (target === 'down') {
+                console.log('[指令执行] 执行: 向下滚动');
+                window.scrollBy({ top: 300, behavior: 'smooth' });
+            } else if (target === 'top') {
+                console.log('[指令执行] 执行: 滚动到顶部');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else if (target === 'bottom') {
+                console.log('[指令执行] 执行: 滚动到底部');
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            }
         } else if (action === 'switch' && target === 'view') {
+            console.log('[指令执行] 执行: 切换到', subTarget, '视图');
             const viewBtn = document.querySelector(`.view-btn[data-view="${subTarget}"]`);
-            if (viewBtn) viewBtn.click();
+            if (viewBtn) {
+                console.log('[指令执行] 找到按钮，点击');
+                viewBtn.click();
+            } else {
+                console.log('[指令执行] 未找到按钮');
+            }
         } else if (action === 'add' && target === 'event') {
+            console.log('[指令执行] 执行: 添加事件');
             const btn = document.getElementById('addEventBtn');
             if (btn) btn.click();
         } else if (action === 'open' && target === 'settings') {
+            console.log('[指令执行] 执行: 打开设置');
             const btn = document.getElementById('settingsBtn');
             if (btn) btn.click();
         } else if (action === 'today') {
+            console.log('[指令执行] 执行: 跳转到今天');
             currentDate = new Date();
             currentMonth = currentDate.getMonth();
             currentYear = currentDate.getFullYear();
@@ -3274,49 +3300,62 @@ function executePageCommands(content) {
     });
 
     // === 自然语言关键词检测 ===
+    console.log('[指令执行] 开始关键词检测');
     // 滚动控制
     if (lowerContent.includes('向上滚动') || lowerContent.includes('往上滚')) {
+        console.log('[指令执行] 关键词匹配: 向上滚动');
         window.scrollBy({ top: -300, behavior: 'smooth' });
     }
     if (lowerContent.includes('向下滚动') || lowerContent.includes('往下滚')) {
+        console.log('[指令执行] 关键词匹配: 向下滚动');
         window.scrollBy({ top: 300, behavior: 'smooth' });
     }
     if (lowerContent.includes('滚动到顶部') || lowerContent.includes('回到顶部')) {
+        console.log('[指令执行] 关键词匹配: 滚动到顶部');
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     if (lowerContent.includes('滚动到底部') || lowerContent.includes('去底部')) {
+        console.log('[指令执行] 关键词匹配: 滚动到底部');
         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
     
     // 视图切换
     if (lowerContent.includes('切换到日视图') || lowerContent.includes('日视图')) {
+        console.log('[指令执行] 关键词匹配: 日视图');
         const viewBtn = document.querySelector('.view-btn[data-view="day"]');
         if (viewBtn) viewBtn.click();
     }
     if (lowerContent.includes('切换到周视图') || lowerContent.includes('周视图')) {
+        console.log('[指令执行] 关键词匹配: 周视图');
         const viewBtn = document.querySelector('.view-btn[data-view="week"]');
         if (viewBtn) viewBtn.click();
     }
     if (lowerContent.includes('切换到月视图') || lowerContent.includes('月视图')) {
+        console.log('[指令执行] 关键词匹配: 月视图');
         const viewBtn = document.querySelector('.view-btn[data-view="month"]');
         if (viewBtn) viewBtn.click();
     }
     if (lowerContent.includes('切换到年视图') || lowerContent.includes('年视图')) {
+        console.log('[指令执行] 关键词匹配: 年视图');
         const viewBtn = document.querySelector('.view-btn[data-view="year"]');
         if (viewBtn) viewBtn.click();
     }
     
     // 添加事件
     if (lowerContent.includes('添加事件') || lowerContent.includes('新建事件')) {
+        console.log('[指令执行] 关键词匹配: 添加事件');
         const addEventBtn = document.getElementById('addEventBtn');
         if (addEventBtn) addEventBtn.click();
     }
     
     // 打开设置
     if (lowerContent.includes('打开设置') || lowerContent.includes('设置面板')) {
+        console.log('[指令执行] 关键词匹配: 打开设置');
         const settingsBtn = document.getElementById('settingsBtn');
         if (settingsBtn) settingsBtn.click();
     }
+    
+    console.log('[指令执行] 完成');
 }
 
 // 保存聊天记录到 localStorage
